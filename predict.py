@@ -538,6 +538,10 @@ def predictor():
                         action='store_true',
                         default=False,
                         help="Does many simulations and prints out odds of each team being champion")
+    parser.add_argument('-q','--quiet',
+                        action='store_true',
+                        default=False,
+                        help="Doesn't print bracket output to terminal")
     find_champion_group = parser.add_mutually_exclusive_group()
     find_champion_group.add_argument('-l','--loose_find_champion',
                         default=None,
@@ -589,7 +593,8 @@ def predictor():
 
         result_string=str(results)
 
-        print result_string
+        if not args.quiet:
+            print result_string
 
         with open(args.output,'w') as f:
             f.write(result_string)
@@ -599,7 +604,8 @@ def predictor():
     bracket=Bracket.fromfile(args.input)
     bracket.simulate()
     sim_string=bracket.simulation_string()
-    print sim_string
+    if not args.quiet:
+        print sim_string
 
     with open(args.output,'w') as f:
         f.write(sim_string)
