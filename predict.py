@@ -485,10 +485,10 @@ def predictor():
                         default=False,
                         help="Does many simulations and prints out odds of each team being champion")
     find_champion_group = parser.add_mutually_exclusive_group()
-    find_champion_group.add_argument('-f','--find_champion',
+    find_champion_group.add_argument('-l','--loose_find_champion',
                         default=None,
                         help="Runs the simulation until the specified champion is found. Assumes that the desired team will win in the championship game.")
-    find_champion_group.add_argument('-g','--strict_find_champion',
+    find_champion_group.add_argument('-s','--strict_find_champion',
                         default=None,
                         help="Runs the simulation until the specified champion is found. Does not assume that desired team will win in the championship game.")
 
@@ -514,9 +514,9 @@ def predictor():
         
         return 0
 
-    if args.find_champion!=None or args.strict_find_champion!=None:
+    if args.loose_find_champion!=None or args.strict_find_champion!=None:
         strict_mode=False
-        desired_champion=args.find_champion
+        desired_champion=args.loose_find_champion
         if args.strict_find_champion!=None:
             strict_mode=True
             desired_champion=args.strict_find_champion
