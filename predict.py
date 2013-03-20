@@ -339,18 +339,19 @@ class Bracket:
     def __iter__(self):
         return self.regions.values().__iter__()
   
-    def simulate_champion(self,desired_champion):
-        self.simulate_for_champion(desired_champion)
+    def simulate_champion(self,desired_champion,strict_mode):
+        self.simulate_for_champion(desired_champion,strict_mode)
         while str(self.champion)!=desired_champion:
-            self.simulate_for_champion(desired_champion)
+            self.simulate_for_champion(desired_champion,strict_mode)
         return self
 
-    def simulate_for_champion(self,desired_champion):
+    def simulate_for_champion(self,desired_champion,strict_mode):
         midwest=None
         south=None
         east=None
         west=None
         desired_champion_region=None
+        desired_champion_team=None
         # Find each region winner
         for region in self.regions.values():
             desired_champion_in_region=False
@@ -358,6 +359,7 @@ class Bracket:
                 if desired_champion==str(team):
                     desired_champion_in_region=True
                     desired_champion_region=str(region)
+                    desired_champion_team=team
                     break
 
             region.simulate()
@@ -395,7 +397,10 @@ class Bracket:
 
         self.finalists=[finalist_1,finalist_2]
         # Now pick a champion
-        self.champion=pick_winner(finalist_1,finalist_2,7)
+        if strict_mode:
+            self.champion=pick_winner(finalist_1,finalist_2,7)
+        else:
+            self.champion=desired_champion_team
   
     def simulate(self):
         midwest=None
@@ -462,9 +467,9 @@ def pick_winner(team1,team2,round_number):
             team2.seed_slot=team1.seed
         return team2
 
-def simulate_desired_champion(run_number,original_bracket,desired_champion):
+def simulate_desired_champion(run_number,original_bracket,desired_champion,strict_mode):
     bracket=original_bracket.copy()
-    return (run_number,bracket.simulate_champion(desired_champion))
+    return (run_number,bracket.simulate_champion(desired_champion,strict_mode))
 
 def predictor():
     # Setup argument parser
@@ -479,9 +484,13 @@ def predictor():
                         action='store_true',
                         default=False,
                         help="Does many simulations and prints out odds of each team being champion")
-    parser.add_argument('-f','--find_champion',
+    find_champion_group = parser.add_mutually_exclusive_group()
+    find_champion_group.add_argument('-f','--find_champion',
                         default=None,
-                        help="Runs the simulation until the specified champion is found")
+                        help="Runs the simulation until the specified champion is found. Assumes that the desired team will win in the championship game.")
+    find_champion_group.add_argument('-g','--strict_find_champion',
+                        default=None,
+                        help="Runs the simulation until the specified champion is found. Does not assume that desired team will win in the championship game.")
 
     args=parser.parse_args()
 
@@ -505,8 +514,12 @@ def predictor():
         
         return 0
 
-    if args.find_champion!=None:
+    if args.find_champion!=None or args.strict_find_champion!=None:
+        strict_mode=False
         desired_champion=args.find_champion
+        if args.strict_find_champion!=None:
+            strict_mode=True
+            desired_champion=args.strict_find_champion
         print 'Desired champion: %s'%(desired_champion)
         bracket=Bracket.fromfile(args.input)
 
@@ -516,7 +529,7 @@ def predictor():
         w=MultiWorker('running desired champion simulations',simulate_desired_champion,results.cb)
 
         for x in xrange(1,desired_champion_simulation_runs+1):
-            w.addJob((x,bracket,desired_champion))
+            w.addJob((x,bracket,desired_champion,strict_mode))
 
         w.finishJobs()
 
