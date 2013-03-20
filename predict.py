@@ -25,6 +25,8 @@ import os
 import sys
 import operator
 import random
+import time
+from multiprocessing import Pool
 
 # Constants
 program_description='Python script to auto-generate "quick pick" march madness brackets from probability input (as in the format of, but not necessarily, the 538 data from Nate Silver)\nEach probability input is assumed to be built up conditionally'
@@ -50,15 +52,75 @@ round_dictionary={
 max_region_round=5
 
 num_champion_simulation_runs=20000
+desired_champion_simulation_runs=10000
 
 # Classes
+class Reporter:
+    def __init__(self,task):
+        self.start=time.time()
+        self.lastreport=self.start
+        self.task=task
+        self.report_interval=1 # Interval to print progress (seconds)
+        print 'Starting '+task
+    def report(self,n):
+        t=time.time()
+        if self.lastreport<(t-self.report_interval):
+            self.lastreport=t
+            sys.stdout.write("  Completed: "+str(n)+" simulation runs\r" )
+            sys.stdout.flush()
+    def done(self):
+        print 'Done %s, took %.3f seconds\n' % (self.task,time.time()-self.start)
+
+# Class to generalize multiprocessing pools
+class MultiWorker:
+    def __init__(self,task,func,custom_cb_func=None):
+        self.reporter=Reporter(task)
+        self.func=func
+        self.pool=Pool()
+        self.results_dict={}
+        self.custom_cb_func=custom_cb_func
+        if custom_cb_func==None:
+            self.custom_cb_enabled=False
+        else:
+            self.custom_cb_enabled=True
+        self.count=0
+    def cb(self,t):
+        self.results_dict[t[0]]=t[1]
+        self.reporter.report(len(self.results_dict))
+    def custom_cb(self,t):
+        self.count+=1
+        self.reporter.report(self.count)
+        self.custom_cb_func(t)
+    def addJob(self,argsTuple):
+        if self.custom_cb_enabled:
+            self.pool.apply_async(self.func,argsTuple,callback=self.custom_cb)
+        else:
+            self.pool.apply_async(self.func,argsTuple,callback=self.cb)
+    def finishJobs(self):
+        self.pool.close()
+        self.pool.join()
+        self.reporter.done()
+        return self.results_dict
+
 class Team:
     # Stores information on a team's probabilities of advancing to each round
-    def __init__(self,team_line):
+    def __init__(self,name,region,seed,round_odds,conditional_round_odds,seed_slot):
+        self.region=region
+        self.seed=seed
+        self.name=name
+        self.round_odds=round_odds
+        self.conditional_round_odds=conditional_round_odds
+
+        # If a team beats a higher seed, this variable is used
+        #  to store the higher team's seed
+        self.seed_slot=seed_slot
+
+    @classmethod
+    def init_from_line(cls, team_line):
         line_data=team_line.split(',')
-        self.region=line_data[0]
-        self.seed=int(line_data[1])
-        self.team=line_data[2]
+        region=line_data[0]
+        seed=int(line_data[1])
+        name=line_data[2]
         round_odds=[]
         for item in line_data[3:10]:
             if item=='':
@@ -69,26 +131,28 @@ class Team:
                 round_odds.append(float(item))
 
         # Make the probabilities conditional
-        self.round_odds=[]
+        conditional_round_odds=[]
         for i,odd in enumerate(round_odds):
             if i==0:
-                self.round_odds.append(odd)
+                conditional_round_odds.append(odd)
             else:
                 prev_round=round_odds[i-1]
                 if prev_round==None:
-                    self.round_odds.append(odd)
+                    conditional_round_odds.append(odd)
                 else:
-                    self.round_odds.append(odd/prev_round)
+                    conditional_round_odds.append(odd/prev_round)
 
-        # If a team beats a higher seed, this variable is used
-        #  to store the higher team's seed
-        self.seed_slot=self.seed
+        return cls(name,region,seed,round_odds,conditional_round_odds,seed)
+
+    def copy(self):
+        # Returns all duplicate (should be non-mutated) objects, except for resets seed slot
+        return Team(self.name,self.region,self.seed,self.round_odds,self.conditional_round_odds,self.seed)
 
     def __getitem__(self,i):
         return self.round_odds[i-1] # Rounds are indexed from 1; lists from 0
 
     def __repr__(self):
-        return self.team
+        return self.name
 
     def __lt__(self, other):
          return self.seed < other.seed
@@ -96,15 +160,53 @@ class Team:
     def reset_seed_slot(self):
         self.seed_slot=self.seed
 
+class SimulateDesiredChampionResults:
+    def __init__(self):
+        self.region_counts={}
+        self.finalist_counts={}
+
+    def cb(self,tup):
+        run_number,results_bracket=tup
+        for region in results_bracket:
+            region_name=str(region)
+            if region_name not in self.region_counts:
+                self.region_counts[region_name]={}
+            for round_number in region.teams_by_round:
+                if round_number not in self.region_counts[region_name]:
+                    self.region_counts[region_name][round_number]={}
+                for team in region.teams_by_round[round_number]:
+                    team=str(team)
+                    if team not in self.region_counts[region_name][round_number]:
+                        self.region_counts[region_name][round_number][team]=0
+                    self.region_counts[region_name][round_number][team]+=1
+
+        for team in results_bracket.finalists:
+            team=str(team)
+            if team not in self.finalist_counts:
+                self.finalist_counts[team]=0
+            self.finalist_counts[team]+=1
+        
+
 class Region:
     # Stores a region of the bracket and all team data for that region
-    def __init__(self,name):
+    def __init__(self,name,teams,teams_by_round):
         self.name=name
-        self.teams=[]
+        self.teams=teams
         # After simulation, this dictionary stores the teams that are in each round
         #  Key: round number
         #  Value: list of team objects
-        self.teams_by_round={}
+        self.teams_by_round=teams_by_round
+
+    @classmethod
+    def init_empty(cls, name):
+        return cls(name,[],{})
+
+    def copy(self):
+        # Does not copy simulation results stored in teams_by_round
+        teams=[]
+        for team in self.teams:
+            teams.append(team.copy())
+        return Region(self.name,teams,{})
 
     def __repr__(self):
         return self.name
@@ -159,8 +261,14 @@ class Region:
             
 class Bracket:
     # Represents bracket and stores all region and team data
-    def __init__(self,bracket_file):
-        self.regions={}
+    def __init__(self,regions,finalists,champion):
+        self.regions=regions
+        self.finalists=finalists
+        self.champion=champion
+
+    @classmethod
+    def fromfile(cls, bracket_file):
+        regions={}
         with open(bracket_file,'r') as f:
             lines=f.readlines()
             
@@ -173,27 +281,40 @@ class Bracket:
 
             # Read in team data
             for line in lines[1:]:
-                team=Team(line.strip())
-                if team.region not in self.regions:
-                    self.regions[team.region]=Region(team.region)
+                team=Team.init_from_line(line.strip())
+                if team.region not in regions:
+                    regions[team.region]=Region.init_empty(team.region)
                     
-                self.regions[team.region].append(team)
+                regions[team.region].append(team)
             
             # Sort each region list of teams by seed
-            for region in self.regions.values():
+            for region in regions.values():
                 region.sort()
 
-            # print self.regions
-            # for region in self.regions.values():
-            #     print '\n%s:\n'%(region)
-            #     for team in region:
-            #         print team
+        return cls(regions,None,None)
+
+    def copy(self):
+        regions={}
+        for region in self.regions:
+            regions[region]=self.regions[region].copy()
+        finalists=None
+        if self.finalists!=None:
+            finalists=[]
+            for finalist in self.finalists:
+                finalists.append(finalist.copy())
+        champion=None
+        if self.champion!=None:
+            champion=self.champion.copy()
+        return Bracket(regions,finalists,champion)
+
+    def __iter__(self):
+        return self.regions.values().__iter__()
   
     def simulate_champion(self,desired_champion):
         self.simulate()
-        while self.champion!=desired_champion:
+        while str(self.champion)!=desired_champion:
             self.simulate()
-        return self.results()
+        return self
   
     def simulate(self):
         midwest=None
@@ -261,6 +382,11 @@ def pick_winner(team1,team2,round_number):
             team2.seed_slot=team1.seed
         return team2
 
+def simulate_desired_champion(run_number,original_bracket,desired_champion):
+    bracket=original_bracket.copy()
+    #print 'Started run %d'%(run_number)
+    return (run_number,bracket.simulate_champion(desired_champion))
+
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
@@ -281,7 +407,7 @@ def predictor():
     args=parser.parse_args()
 
     if args.champion_mode:
-        bracket=Bracket(args.input)
+        bracket=Bracket.fromfile(args.input)
         champions={}
         for i in xrange(0,num_champion_simulation_runs):
             bracket.simulate()
@@ -303,13 +429,23 @@ def predictor():
     if args.find_champion!=None:
         desired_champion=args.find_champion
         print 'Desired champion: %s'%(desired_champion)
-        bracket=Bracket(args.input)
-        region_counts=[]
-        finalist_counts=[]
+        bracket=Bracket.fromfile(args.input)
 
-        regions,finalists,champion=bracket.simulate_champion(desired_champion)
+        results=SimulateDesiredChampionResults()
+
+        print 'Simulation will stop after %d runs generate desired champion'%(desired_champion_simulation_runs)
+        w=MultiWorker('running desired champion simulations',simulate_desired_champion,results.cb)
+
+        for x in xrange(1,desired_champion_simulation_runs+1):
+            w.addJob((x,bracket,desired_champion))
+
+        w.finishJobs()
+
+        #print region_counts
+        print results.finalist_counts
         
-        
+
+        return 0
         while (True):
             if str(champion)==desired_champion:
                 break
@@ -318,7 +454,7 @@ def predictor():
         print bracket.simulation_string()
         return 0
 
-    bracket=Bracket(args.input)
+    bracket=Bracket.fromfile(args.input)
     bracket.simulate()
     sim_string=bracket.simulation_string()
     print sim_string
