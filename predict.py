@@ -253,7 +253,7 @@ class Region:
         for team in self.teams:
             team.reset_seed_slot()
 
-    def simulate(self):
+    def simulate(self,desired_champion=None):
         self.teams_by_round={}
         self.reset_seed_slots()
         # Simulate beginning of round of 32 by removing duplicate seeds (first 4)
@@ -266,6 +266,11 @@ class Region:
             teams=round2_teams[seed]
             if len(teams)==2:
                 round2_teams[seed]=[pick_winner(teams[0],teams[1],1)]
+                if desired_champion!=None and (str(teams[0])==desired_champion or str(teams[1])==desired_champion):
+                    if str(round2_teams[seed])!=desired_champion:
+                        # Abort and restart this run
+                        self.simulate()
+                        return
             elif len(teams)!=1:
                 raise Exception('Incorrect number of teams for seed %d'%(seed))
         self.teams_by_round[1]=[i[0] for i in round2_teams.values()]
@@ -283,7 +288,13 @@ class Region:
             low_seeds.sort(key=operator.attrgetter('seed_slot'),reverse=True)
 
             for team1,team2 in zip(high_seeds,low_seeds):
-                this_round_teams.append(pick_winner(team1,team2,round_number))
+                this_winner=pick_winner(team1,team2,round_number)
+                if desired_champion!=None and (str(team1)==desired_champion or str(team2)==desired_champion):
+                    if str(this_winner)!=desired_champion:
+                        # Abort and restart this run
+                        self.simulate()
+                        return
+                this_round_teams.append(this_winner)
             
             this_round_teams.sort(key=operator.attrgetter('seed'))
             self.teams_by_round[round_number]=this_round_teams
@@ -362,11 +373,11 @@ class Bracket:
                     desired_champion_team=team
                     break
 
-            region.simulate()
+            region.simulate(desired_champion)
             region_winner=region.teams_by_round[5][0]
             if desired_champion_in_region:
                 while(str(region_winner)!=desired_champion):
-                    region.simulate()
+                    region.simulate(desired_champion)
                     region_winner=region.teams_by_round[5][0]
 
             if region.name=='Midwest':
@@ -382,19 +393,46 @@ class Bracket:
         
         # Then matchup region winners
         if desired_champion_region=='Midwest':
-            finalist_1=midwest
+            if not strict_mode:
+                finalist_1=midwest
+            else:
+                finalist_1=pick_winner(midwest,west,6)
+                while(str(finalist_1)!=desired_champion):
+                    self.regions['West'].simulate()
+                    west=self.regions['West'].teams_by_round[5][0]
+                    finalist_1=pick_winner(midwest,west,6)
         elif desired_champion_region=='West':
-            finalist_1=west
+            if not strict_mode:
+                finalist_1=west
+            else:
+                finalist_1=pick_winner(midwest,west,6)
+                while(str(finalist_1)!=desired_champion):
+                    self.regions['Midwest'].simulate()
+                    midwest=self.regions['Midwest'].teams_by_round[5][0]
+                    finalist_1=pick_winner(midwest,west,6)
         else:
             finalist_1=pick_winner(midwest,west,6)
 
         if desired_champion_region=='South':
-            finalist_2=south
+            if not strict_mode:
+                finalist_2=south
+            else:
+                finalist_2=pick_winner(south,east,6)
+                while(str(finalist_2)!=desired_champion):
+                    self.regions['East'].simulate()
+                    east=self.regions['East'].teams_by_round[5][0]
+                    finalist_2=pick_winner(south,east,6)
         elif desired_champion_region=='East':
-            finalist_2=east
+            if not strict_mode:
+                finalist_2=east
+            else:
+                finalist_2=pick_winner(south,east,6)
+                while(str(finalist_2)!=desired_champion):
+                    self.regions['South'].simulate()
+                    south=self.regions['South'].teams_by_round[5][0]
+                    finalist_2=pick_winner(south,east,6)
         else:
             finalist_2=pick_winner(south,east,6)
-
         self.finalists=[finalist_1,finalist_2]
         # Now pick a champion
         if strict_mode:
@@ -487,10 +525,10 @@ def predictor():
     find_champion_group = parser.add_mutually_exclusive_group()
     find_champion_group.add_argument('-l','--loose_find_champion',
                         default=None,
-                        help="Runs the simulation until the specified champion is found. Assumes that the desired team will win in the championship game.")
+                        help="Runs the simulation until the specified champion is found. Assumes that the desired team will win in the semifinals and championship game.")
     find_champion_group.add_argument('-s','--strict_find_champion',
                         default=None,
-                        help="Runs the simulation until the specified champion is found. Does not assume that desired team will win in the championship game.")
+                        help="Runs the simulation until the specified champion is found. Does not assume that desired team will win in the seminfinals or championship game.")
 
     args=parser.parse_args()
 
