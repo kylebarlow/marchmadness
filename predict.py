@@ -59,6 +59,11 @@ region_string='\n==========%s==========\n'
 
 view_threshold=0.01 # Percentages below this value will not be output
 
+round_scores={2:1,3:2,4:4,5:8,6:16,7:32}
+#round_scores={2:1,3:2,4:3,5:4,6:6,7:8}
+
+maximize_score_runs=100000
+
 # Classes
 class Reporter:
     def __init__(self,task):
@@ -71,7 +76,7 @@ class Reporter:
         t=time.time()
         if self.lastreport<(t-self.report_interval):
             self.lastreport=t
-            sys.stdout.write("  Completed: "+str(n)+" simulation runs with desired result\r" )
+            sys.stdout.write("  Completed: "+str(n)+" simulation runs\r" )
             sys.stdout.flush()
     def done(self):
         print 'Done %s, took %.3f seconds\n' % (self.task,time.time()-self.start)
@@ -131,7 +136,7 @@ class Team:
             if item=='':
                 round_odds.append(None)
             elif item=='<0.1':
-                round_odds.append(.0001)
+                round_odds.append(.00001)
             else:
                 round_odds.append(float(item))
 
@@ -164,6 +169,18 @@ class Team:
 
     def reset_seed_slot(self):
         self.seed_slot=self.seed
+
+class MaximizeScoreResults:
+    def __init__(self):
+        self.best_bracket_score=0.0
+        self.best_bracket=None
+
+    def cb(self,tup):
+        run_number,bracket=tup
+        if bracket.expected_score>self.best_bracket_score:
+            self.best_bracket=bracket
+            self.best_bracket_score=bracket.expected_score
+            print '\nFound new high score %.3f'%(self.best_bracket_score)
 
 class SimulateDesiredChampionResults:
     def __init__(self):
@@ -218,24 +235,25 @@ class SimulateDesiredChampionResults:
 
 class Region:
     # Stores a region of the bracket and all team data for that region
-    def __init__(self,name,teams,teams_by_round):
+    def __init__(self,name,teams,teams_by_round,expected_score):
         self.name=name
         self.teams=teams
         # After simulation, this dictionary stores the teams that are in each round
         #  Key: round number
         #  Value: list of team objects
         self.teams_by_round=teams_by_round
+        self.expected_score=expected_score
 
     @classmethod
     def init_empty(cls, name):
-        return cls(name,[],{})
+        return cls(name,[],{},0.0)
 
     def copy(self):
         # Does not copy simulation results stored in teams_by_round
         teams=[]
         for team in self.teams:
             teams.append(team.copy())
-        return Region(self.name,teams,{})
+        return Region(self.name,teams,{},0.0)
 
     def __repr__(self):
         return self.name
@@ -249,13 +267,14 @@ class Region:
     def sort(self):
         self.teams.sort(key=operator.attrgetter('seed'))
 
-    def reset_seed_slots(self):
+    def reset(self):
+        self.expected_score=0.0
         for team in self.teams:
             team.reset_seed_slot()
 
     def simulate(self,desired_champion=None):
         self.teams_by_round={}
-        self.reset_seed_slots()
+        self.reset()
         # Simulate beginning of round of 32 by removing duplicate seeds (first 4)
         round2_teams={}
         for team in self.teams:
@@ -294,6 +313,7 @@ class Region:
                         # Abort and restart this run
                         self.simulate()
                         return
+                self.expected_score+=(this_winner[round_number]/(team1[round_number]+team2[round_number]))*(round_scores[round_number]+this_winner.seed)
                 this_round_teams.append(this_winner)
             
             this_round_teams.sort(key=operator.attrgetter('seed'))
@@ -301,10 +321,11 @@ class Region:
             
 class Bracket:
     # Represents bracket and stores all region and team data
-    def __init__(self,regions,finalists,champion):
+    def __init__(self,regions,finalists,champion,expected_score):
         self.regions=regions
         self.finalists=finalists
         self.champion=champion
+        self.expected_score=expected_score
 
     @classmethod
     def fromfile(cls, bracket_file):
@@ -331,7 +352,7 @@ class Bracket:
             for region in regions.values():
                 region.sort()
 
-        return cls(regions,None,None)
+        return cls(regions,None,None,0.0)
 
     def copy(self):
         regions={}
@@ -345,7 +366,7 @@ class Bracket:
         champion=None
         if self.champion!=None:
             champion=self.champion.copy()
-        return Bracket(regions,finalists,champion)
+        return Bracket(regions,finalists,champion,0.0)
 
     def __iter__(self):
         return self.regions.values().__iter__()
@@ -433,6 +454,7 @@ class Bracket:
                     finalist_2=pick_winner(south,east,6)
         else:
             finalist_2=pick_winner(south,east,6)
+
         self.finalists=[finalist_1,finalist_2]
         # Now pick a champion
         if strict_mode:
@@ -455,6 +477,19 @@ class Bracket:
             self.champion=champion
         else:
             self.champion=desired_champion_team
+        self.midwest=midwest
+        self.south=south
+        self.east=east
+        self.west=west
+        self.set_expected_score()
+
+    def set_expected_score(self):
+        self.expected_score=0.0
+        self.expected_score+=(self.finalists[0][6]/(self.midwest[6]+self.west[6]))*(round_scores[6]+self.finalists[0].seed)
+        self.expected_score+=(self.finalists[1][6]/(self.south[6]+self.east[6]))*(round_scores[6]+self.finalists[1].seed)
+        self.expected_score+=(self.champion[7]/(self.finalists[0][7]+self.finalists[1][7]))*(round_scores[7]+self.champion.seed)
+        for region in self.regions.values():
+            self.expected_score+=region.expected_score
   
     def simulate(self):
         midwest=None
@@ -483,6 +518,13 @@ class Bracket:
 
         # Now pick a champion
         self.champion=pick_winner(finalist_1,finalist_2,7)
+        
+        self.midwest=midwest
+        self.south=south
+        self.east=east
+        self.west=west
+        self.set_expected_score()
+
 
     def simulation_string(self):
         return_string=''
@@ -503,7 +545,6 @@ class Bracket:
 
     def results(self):
         return (self.regions,self.finalists,self.champion)
-            
 
 # Functions
 
@@ -525,6 +566,11 @@ def simulate_desired_champion(run_number,original_bracket,desired_champion,stric
     bracket=original_bracket.copy()
     return (run_number,bracket.simulate_champion(desired_champion,strict_mode))
 
+def simulate_max_score(run_number,original_bracket):
+    bracket=original_bracket.copy()
+    bracket.simulate()
+    return (run_number,bracket)
+
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
@@ -542,6 +588,10 @@ def predictor():
                         action='store_true',
                         default=False,
                         help="Doesn't print bracket output to terminal")
+    parser.add_argument('-m','--maximize_score',
+                        action='store_true',
+                        default=False,
+                        help="Finds bracket with maximum expected score")
     find_champion_group = parser.add_mutually_exclusive_group()
     find_champion_group.add_argument('-l','--loose_find_champion',
                         default=None,
@@ -598,6 +648,30 @@ def predictor():
 
         with open(args.output,'w') as f:
             f.write(result_string)
+
+        return 0
+
+    if args.maximize_score:
+        bracket=Bracket.fromfile(args.input)
+        print 'Simulation will stop after %d runs'%(maximize_score_runs)
+        
+        results=MaximizeScoreResults()
+        
+        w=MultiWorker('running maximize score simulations',simulate_max_score,results.cb)
+
+        for x in xrange(1,maximize_score_runs+1):
+            w.addJob((x,bracket))
+
+        w.finishJobs()
+
+        sim_string=results.best_bracket.simulation_string()
+        if not args.quiet:
+            print sim_string
+            print 'Expected score: %.3f'%(results.best_bracket_score)
+
+        with open(args.output,'w') as f:
+            f.write('Expected score: %.3f\n'%(results.best_bracket_score))
+            f.write(sim_string)
 
         return 0
 
