@@ -52,7 +52,12 @@ round_dictionary={
 max_region_round=5
 
 num_champion_simulation_runs=20000
-desired_champion_simulation_runs=10000
+desired_champion_simulation_runs=1000
+
+championship_string='\n==========Championship==========\n'
+region_string='\n==========%s==========\n'
+
+view_threshold=0.01 # Percentages below this value will not be output
 
 # Classes
 class Reporter:
@@ -185,6 +190,30 @@ class SimulateDesiredChampionResults:
             if team not in self.finalist_counts:
                 self.finalist_counts[team]=0
             self.finalist_counts[team]+=1
+
+    def __repr__(self):
+        return_string=''
+        for region in self.region_counts:
+            return_string+=region_string%(str(region))
+            for round_number in xrange(1,max_region_round+1):
+                return_string+='\n%s:\n'%(round_dictionary[round_number])
+                team_percentages=[]
+                for team in self.region_counts[region][round_number]:
+                    team_percentages.append((float(self.region_counts[region][round_number][team])/float(desired_champion_simulation_runs),team))
+                team_percentages.sort(reverse=True)
+                for percentage,team in team_percentages:
+                    if percentage>=view_threshold:
+                        return_string+='%s: %.1f%%\n'%(team,percentage*100)
+
+        return_string+=championship_string
+        team_percentages=[]
+        for team in self.finalist_counts:
+            team_percentages.append((float(self.finalist_counts[team]/float(desired_champion_simulation_runs)),team))
+        team_percentages.sort(reverse=True)
+        for percentage,team in team_percentages:
+            if percentage>=view_threshold:
+                return_string+='%s: %.1f%%\n'%(team,percentage*100)
+        return return_string
         
 
 class Region:
@@ -346,17 +375,16 @@ class Bracket:
 
     def simulation_string(self):
         return_string=''
-        final_four=[]
         # First, build each region
         for region in self.regions.values():
-            return_string+='\n==========%s==========\n'%(str(region))
+            return_string+=region_string%(str(region))
             for round_number in xrange(1,max_region_round+1):
                 return_string+='\n%s:\n'%(round_dictionary[round_number])
                 for team in region.teams_by_round[round_number]:
                     return_string+='%s\n'%(str(team))
 
         # Build up finals
-        return_string+='\n==========Championship==========\n'
+        return_string+=championship_string
         for team in self.finalists:
             return_string+='%s\n'%(team)
         return_string+='\nChampion: %s\n'%(self.champion)
@@ -384,7 +412,6 @@ def pick_winner(team1,team2,round_number):
 
 def simulate_desired_champion(run_number,original_bracket,desired_champion):
     bracket=original_bracket.copy()
-    #print 'Started run %d'%(run_number)
     return (run_number,bracket.simulate_champion(desired_champion))
 
 def predictor():
@@ -421,7 +448,7 @@ def predictor():
         print 'Percent chance of winning tournament:'
         for num_wins,name in output_list:
             win_percent=float(num_wins)*100/float(num_champion_simulation_runs)
-            if win_percent>=1:
+            if win_percent>=(view_threshold*100):
                 print '  %s: %.1f%%'%(name,win_percent)
         
         return 0
@@ -441,17 +468,13 @@ def predictor():
 
         w.finishJobs()
 
-        #print region_counts
-        print results.finalist_counts
-        
+        result_string=str(results)
 
-        return 0
-        while (True):
-            if str(champion)==desired_champion:
-                break
-            champion=bracket.simulate_champion()
-        
-        print bracket.simulation_string()
+        print result_string
+
+        with open(args.output,'w') as f:
+            f.write(results_string)
+
         return 0
 
     bracket=Bracket.fromfile(args.input)
