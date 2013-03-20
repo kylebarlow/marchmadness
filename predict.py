@@ -189,9 +189,11 @@ class Bracket:
             #     for team in region:
             #         print team
   
-    def simulate_champion(self):
+    def simulate_champion(self,desired_champion):
         self.simulate()
-        return self.champion
+        while self.champion!=desired_champion:
+            self.simulate()
+        return self.results()
   
     def simulate(self):
         midwest=None
@@ -238,6 +240,9 @@ class Bracket:
             return_string+='%s\n'%(team)
         return_string+='\nChampion: %s\n'%(self.champion)
         return return_string
+
+    def results(self):
+        return (self.regions,self.finalists,self.champion)
             
 
 # Functions
@@ -299,7 +304,11 @@ def predictor():
         desired_champion=args.find_champion
         print 'Desired champion: %s'%(desired_champion)
         bracket=Bracket(args.input)
-        champion=bracket.simulate_champion()
+        region_counts=[]
+        finalist_counts=[]
+
+        regions,finalists,champion=bracket.simulate_champion(desired_champion)
+        
         
         while (True):
             if str(champion)==desired_champion:
