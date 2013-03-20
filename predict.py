@@ -131,7 +131,7 @@ class Team:
             if item=='':
                 round_odds.append(None)
             elif item=='<0.1':
-                round_odds.append(.0001)
+                round_odds.append(.001)
             else:
                 round_odds.append(float(item))
 
@@ -340,10 +340,62 @@ class Bracket:
         return self.regions.values().__iter__()
   
     def simulate_champion(self,desired_champion):
-        self.simulate()
+        self.simulate_for_champion(desired_champion)
         while str(self.champion)!=desired_champion:
-            self.simulate()
+            self.simulate_for_champion(desired_champion)
         return self
+
+    def simulate_for_champion(self,desired_champion):
+        midwest=None
+        south=None
+        east=None
+        west=None
+        desired_champion_region=None
+        # Find each region winner
+        for region in self.regions.values():
+            desired_champion_in_region=False
+            for team in region:
+                if desired_champion==str(team):
+                    desired_champion_in_region=True
+                    desired_champion_region=str(region)
+                    break
+
+            region.simulate()
+            region_winner=region.teams_by_round[5][0]
+            if desired_champion_in_region:
+                while(str(region_winner)!=desired_champion):
+                    region.simulate()
+                    region_winner=region.teams_by_round[5][0]
+
+            if region.name=='Midwest':
+                midwest=region_winner
+            elif region.name=='South':
+                south=region_winner
+            elif region.name=='East':
+                east=region_winner
+            elif region.name=='West':
+                west=region_winner
+            else:
+                raise Exception('Region "%s" not recognized'%(region.name))
+        
+        # Then matchup region winners
+        if desired_champion_region=='Midwest':
+            finalist_1=midwest
+        elif desired_champion_region=='West':
+            finalist_1=west
+        else:
+            finalist_1=pick_winner(midwest,west,6)
+
+        if desired_champion_region=='South':
+            finalist_2=south
+        elif desired_champion_region=='East':
+            finalist_2=east
+        else:
+            finalist_2=pick_winner(south,east,6)
+
+        self.finalists=[finalist_1,finalist_2]
+        # Now pick a champion
+        self.champion=pick_winner(finalist_1,finalist_2,7)
   
     def simulate(self):
         midwest=None
@@ -473,7 +525,7 @@ def predictor():
         print result_string
 
         with open(args.output,'w') as f:
-            f.write(results_string)
+            f.write(result_string)
 
         return 0
 
