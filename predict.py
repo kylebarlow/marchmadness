@@ -131,7 +131,7 @@ class Team:
             if item=='':
                 round_odds.append(None)
             elif item=='<0.1':
-                round_odds.append(.001)
+                round_odds.append(.0001)
             else:
                 round_odds.append(float(item))
 
