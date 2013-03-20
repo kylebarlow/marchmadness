@@ -281,6 +281,8 @@ class Region:
 
             prev_round_teams=self.teams_by_round[round_number-1]
             prev_round_teams.sort(key=operator.attrgetter('seed_slot'))
+            if len(prev_round_teams)%2!=0:
+                raise Exception('Not an even number of teams')
             half_num_teams=len(prev_round_teams)/2
 
             high_seeds=prev_round_teams[:half_num_teams]
@@ -513,12 +515,12 @@ def pick_winner(team1,team2,round_number):
     odds_range=team1_prob+team2_prob
     num=random.uniform(0,odds_range)
     if num<=team1_prob:
-        if team2.seed<team1.seed_slot:
-            team1.seed_slot=team2.seed
+        if team2.seed_slot<team1.seed_slot:
+            team1.seed_slot=team2.seed_slot
         return team1
     else:
-        if team1.seed<team2.seed_slot:
-            team2.seed_slot=team1.seed
+        if team1.seed_slot<team2.seed_slot:
+            team2.seed_slot=team1.seed_slot
         return team2
 
 def simulate_desired_champion(run_number,original_bracket,desired_champion,strict_mode):
