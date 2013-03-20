@@ -71,7 +71,7 @@ class Reporter:
         t=time.time()
         if self.lastreport<(t-self.report_interval):
             self.lastreport=t
-            sys.stdout.write("  Completed: "+str(n)+" simulation runs\r" )
+            sys.stdout.write("  Completed: "+str(n)+" simulation runs with desired result\r" )
             sys.stdout.flush()
     def done(self):
         print 'Done %s, took %.3f seconds\n' % (self.task,time.time()-self.start)
@@ -373,7 +373,7 @@ class Bracket:
                     desired_champion_team=team
                     break
 
-            region.simulate(desired_champion)
+            region.simulate()
             region_winner=region.teams_by_round[5][0]
             if desired_champion_in_region:
                 while(str(region_winner)!=desired_champion):
@@ -436,7 +436,23 @@ class Bracket:
         self.finalists=[finalist_1,finalist_2]
         # Now pick a champion
         if strict_mode:
-            self.champion=pick_winner(finalist_1,finalist_2,7)
+            champion=pick_winner(finalist_1,finalist_2,7)
+            while(str(champion)!=desired_champion):
+                if desired_champion==str(finalist_1):
+                    self.regions['South'].simulate()
+                    south=self.regions['South'].teams_by_round[5][0]
+                    self.regions['East'].simulate()
+                    east=self.regions['East'].teams_by_round[5][0]
+                    finalist_2=pick_winner(south,east,6)
+                    champion=pick_winner(finalist_1,finalist_2,7)
+                else:
+                    self.regions['Midwest'].simulate()
+                    midwest=self.regions['Midwest'].teams_by_round[5][0]
+                    self.regions['West'].simulate()
+                    west=self.regions['West'].teams_by_round[5][0]
+                    finalist_1=pick_winner(midwest,west,6)
+                    champion=pick_winner(finalist_1,finalist_2,7)
+            self.champion=champion
         else:
             self.champion=desired_champion_team
   
