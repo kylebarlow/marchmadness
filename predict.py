@@ -311,7 +311,11 @@ def predictor():
 
     bracket=Bracket(args.input)
     bracket.simulate()
-    print bracket.simulation_string()
+    sim_string=bracket.simulation_string()
+    print sim_string
+
+    with open(args.output,'w') as f:
+        f.write(sim_string)
 
     return 0
 
