@@ -146,7 +146,7 @@ class Team:
             if i == 0:
                 conditional_round_odds.append(odd)
             else:
-                prev_round=round_odds[i-1]
+                prev_round = round_odds[i-1]
                 if prev_round == None:
                     conditional_round_odds.append(odd)
                 else:
