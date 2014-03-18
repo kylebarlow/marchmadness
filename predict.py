@@ -59,8 +59,15 @@ region_string = '\n==========%s==========\n'
 
 view_threshold = 0.01 # Percentages below this value will not be output
 
+# This dictionary is used to calculate the expected score of a bracket in leagues where
+#  additional points are awarded for correct picks in later rounds. Each key corresponds
+#  to the number of a round (see round_dictionary) above, and each value corresponds to
+#  the weight for each correct pick in that round. For example, a key/value pair of
+#  3:2 would mean that a correct pick in the third round is worth twice as much as the baseline
+
+# This feature was designed to work well with CBS Sportsline leagues, feel free to add more
+#  support for other sites
 round_scores = {2:1,3:2,4:4,5:8,6:16,7:32}
-#round_scores = {2:1,3:2,4:3,5:4,6:6,7:8}
 
 maximize_score_runs = 100000
 
@@ -315,6 +322,10 @@ class Region:
                         # Abort and restart this run
                         self.simulate()
                         return
+                # Calculate the expected value for this victory by using the probablity it actually
+                # happens and by using a scoring scheme where you get the number of points you get
+                # is the same as the seed of the winner * the round multiplier.
+                # This is how CBS sportsline leagues I've used work.
                 self.expected_score += ( this_winner[round_number] / (team1[round_number]+team2[round_number]))*(round_scores[round_number]+this_winner.seed)
                 this_round_teams.append(this_winner)
             
