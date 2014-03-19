@@ -69,7 +69,7 @@ view_threshold = 0.01 # Percentages below this value will not be output
 #  support for other sites
 round_scores = {2:1,3:2,4:4,5:8,6:16,7:32}
 
-maximize_score_runs = 100000
+maximize_score_runs = 5000000
 
 # Classes
 class Reporter:
