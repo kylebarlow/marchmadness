@@ -324,7 +324,7 @@ class Region:
                         return
                 # Calculate the expected value for this victory by using the probablity it actually
                 # happens and by using a scoring scheme where you get the number of points you get
-                # is the same as the seed of the winner * the round multiplier.
+                # is the same as the seed of the winner + the round multiplier.
                 # This is how CBS sportsline leagues I've used work.
                 self.expected_score += ( this_winner[round_number] / (team1[round_number]+team2[round_number]))*(round_scores[round_number]+this_winner.seed)
                 this_round_teams.append(this_winner)
