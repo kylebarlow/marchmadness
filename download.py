@@ -4,7 +4,7 @@
 
 """
 March Madness data parsing script
-Copyright (C) 2013 Kyle Barlow
+Copyright (C) 2013-2015 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

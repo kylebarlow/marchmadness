@@ -3,7 +3,7 @@
 
 """
 March Madness prediction script
-Copyright (C) 2013 Kyle Barlow
+Copyright (C) 2013-2015 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -67,7 +67,7 @@ view_threshold = 0.01 # Percentages below this value will not be output
 
 # This feature was designed to work well with CBS Sportsline leagues, feel free to add more
 #  support for other sites
-round_scores = {2:1,3:2,4:4,5:8,6:16,7:32}
+round_scores = {2:1,3:2,4:3,5:4,6:6,7:8}
 
 maximize_score_runs = 5000000
 
