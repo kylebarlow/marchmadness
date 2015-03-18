@@ -37,3 +37,4 @@ nosetests.xml
 # Project files
 output.txt
 html.dump
+tmp-best-bracket.txt

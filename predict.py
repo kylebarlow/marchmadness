@@ -185,6 +185,8 @@ class MaximizeScoreResults:
     def cb(self, tup):
         run_number,bracket = tup
         if bracket.expected_score > self.best_bracket_score:
+            with open('tmp-best-bracket.txt', 'w') as f:
+                f.write(bracket.simulation_string())
             self.best_bracket = bracket
             self.best_bracket_score = bracket.expected_score
             print '\nFound new high score %.3f' % (self.best_bracket_score)
