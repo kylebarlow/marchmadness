@@ -25,8 +25,8 @@ This script expects a file named 'html.dump' to exist containing the 538 output
 The relevant html can be extracted from fivethirtyeight_url using a browser
 (e.g. in Chrome select "inspect element" on the data table)
 
-My dump started after this tag:
-<tbody role="alert" aria-live="polite" aria-relevant="all">
+My dump started with this tag:
+<tbody>
 
 """
 
@@ -42,7 +42,7 @@ from predict import header_string
 # Constants
 program_description = 'Python script to update data.csv with updated data from html dump from fivethirtyeight.com'
 
-fivethirtyeight_url = 'http://fivethirtyeight.com/interactives/march-madness-predictions/'
+fivethirtyeight_url = 'http://fivethirtyeight.com/interactives/march-madness-predictions-2015/#mens'
 
 def main():
     
@@ -52,20 +52,27 @@ def main():
 
     output_data = []
     for team in tr_tags:
-        region = str(team.find_all('td', attrs={'class':'region '})[0].contents[0])
-        seed = team.find_all('td', attrs={'class':'seed '})[0].contents[0]
+        region = str(team.find_all('td', attrs={'class':'region'})[0].contents[0])
+        seed = team.find_all('td', attrs={'class':'seed'})[0].contents[0]
         m = re.match('(\d+)([a-zA-z]+)', seed)
         if m:
             seed = int( m.group(1) )
         else:
             seed = int( seed )
-        name = str(team.find_all('td', attrs={'class':'team-name '})[0].span.contents[0])
+
+        name = str(team.find_all('td', attrs={'class':'team-name'})[0].contents[0])
         number_wins = len(team.find_all('span', attrs={'class':'win'}))
         
-        probability_tags = team.find_all('div', attrs={'data-toggle':"tooltip", 'data-placement':"bottom", 'data-tooltip':"data-tooltip", 'class':"dead"})
+        probability_tags = team.find_all('div', attrs={'data-placement':"bottom", 'class':"", 'title':''})
+
+        dead_tags = team.find_all('div', attrs={'data-placement':"bottom", 'class':"dead", 'title':''})
+        if len(dead_tags) == 7:
+            # Team already lost
+            continue
 
         # Parsing check - number of win tags plus number of tags with probabilities
         # should equal number of rounds in the tournament (7)
+        # print team
         assert( number_wins + len(probability_tags) == 7 )
 
         # Pull out most precise probability available
