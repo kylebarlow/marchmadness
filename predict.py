@@ -59,19 +59,45 @@ region_string = '\n==========%s==========\n'
 
 view_threshold = 0.01 # Percentages below this value will not be output
 
-# This dictionary is used to calculate the expected score of a bracket in leagues where
-#  additional points are awarded for correct picks in later rounds. Each key corresponds
-#  to the number of a round (see round_dictionary) above, and each value corresponds to
-#  the weight for each correct pick in that round. For example, a key/value pair of
-#  3:2 would mean that a correct pick in the third round is worth twice as much as the baseline
-
-# This feature was designed to work well with CBS Sportsline leagues, feel free to add more
-#  support for other sites
-round_scores = {2:1,3:2,4:3,5:4,6:6,7:8}
-
 maximize_score_runs = 5000000
 
 # Classes
+
+# Class to define how many points are earned per correct pick per round
+class RoundScores:
+    def __init__(self):
+        # This dictionary is used to calculate the expected score of a bracket in leagues where
+        #  additional points are awarded for correct picks in later rounds. Each key corresponds
+        #  to the number of a round (see round_dictionary) above, and each value corresponds to
+        #  the weight for each correct pick in that round. For example, a key/value pair of
+        #  3:2 would mean that a correct pick in the third round is worth twice as much as the baseline
+
+        # This feature was designed to work well with CBS Sportsline leagues, feel free to add more
+        #  support for other sites
+        self.default_scores = {
+            2:1,
+            3:2,
+            4:3,
+            5:4,
+            6:6,
+            7:8
+        }
+
+        self.nyt_scores_loaded = False
+
+    def load_nyt_score(self, data_file):
+        with open(data_file, 'r') as f:
+            pass
+        self.nyt_scores_loaded = True
+
+    def __getitem__(self, tup):
+        if self.nyt_scores_loaded:
+            return 0
+        else:
+            return self.default_scores[tup]
+        
+
+# Output helper class
 class Reporter:
     def __init__(self,task):
         self.start = time.time()
@@ -186,7 +212,7 @@ class MaximizeScoreResults:
         run_number,bracket = tup
         if bracket.expected_score > self.best_bracket_score:
             with open('tmp-best-bracket.txt', 'w') as f:
-                f.write(bracket.simulation_string())
+                f.write( bracket.simulation_string() )
             self.best_bracket = bracket
             self.best_bracket_score = bracket.expected_score
             print '\nFound new high score %.3f' % (self.best_bracket_score)
@@ -244,7 +270,7 @@ class SimulateDesiredChampionResults:
 
 class Region:
     # Stores a region of the bracket and all team data for that region
-    def __init__(self, name, teams, teams_by_round, expected_score):
+    def __init__(self, name, teams, teams_by_round, expected_score, round_scores):
         self.name = name
         self.teams = teams
         # After simulation, this dictionary stores the teams that are in each round
@@ -252,17 +278,18 @@ class Region:
         #  Value: list of team objects
         self.teams_by_round = teams_by_round
         self.expected_score = expected_score
+        self.round_scores = round_scores
 
     @classmethod
-    def init_empty(cls, name):
-        return cls(name, [], {}, 0.0)
+    def init_empty(cls, name, round_scores):
+        return cls(name, [], {}, 0.0, round_scores)
 
     def copy(self):
         # Does not copy simulation results stored in teams_by_round
         teams = []
         for team in self.teams:
             teams.append(team.copy())
-        return Region(self.name, teams, {}, 0.0)
+        return Region(self.name, teams, {}, 0.0, self.round_scores)
 
     def __repr__(self):
         return self.name
@@ -324,11 +351,11 @@ class Region:
                         # Abort and restart this run
                         self.simulate()
                         return
-                # Calculate the expected value for this victory by using the probablity it actually
+                # Calculate the expected value for this victory by using the probability it actually
                 # happens and by using a scoring scheme where you get the number of points you get
                 # is the same as the seed of the winner + the round multiplier.
                 # This is how CBS sportsline leagues I've used work.
-                self.expected_score += ( this_winner[round_number] / (team1[round_number]+team2[round_number]))*(round_scores[round_number]+this_winner.seed)
+                self.expected_score += ( this_winner[round_number] / (team1[round_number]+team2[round_number]))*(self.round_scores[round_number]+this_winner.seed)
                 this_round_teams.append(this_winner)
             
             this_round_teams.sort(key=operator.attrgetter('seed'))
@@ -336,14 +363,16 @@ class Region:
             
 class Bracket:
     # Represents bracket and stores all region and team data
-    def __init__(self, regions, finalists, champion, expected_score):
+    def __init__(self, regions, finalists, champion, expected_score, round_scores):
         self.regions = regions
         self.finalists = finalists
         self.champion = champion
         self.expected_score = expected_score
 
+        self.round_scores = round_scores
+
     @classmethod
-    def fromfile(cls, bracket_file):
+    def fromfile(cls, bracket_file, round_scores):
         regions = {}
         with open(bracket_file, 'r') as f:
             lines = f.readlines()
@@ -359,7 +388,7 @@ class Bracket:
             for line in lines[1:]:
                 team=Team.init_from_line(line.strip())
                 if team.region not in regions:
-                    regions[team.region] = Region.init_empty(team.region)
+                    regions[team.region] = Region.init_empty(team.region, round_scores)
                     
                 regions[team.region].append(team)
             
@@ -367,7 +396,7 @@ class Bracket:
             for region in regions.values():
                 region.sort()
 
-        return cls(regions, None, None, 0.0)
+        return cls(regions, None, None, 0.0, round_scores)
 
     def copy(self):
         regions={}
@@ -381,7 +410,7 @@ class Bracket:
         champion = None
         if self.champion != None:
             champion = self.champion.copy()
-        return Bracket(regions, finalists, champion, 0.0)
+        return Bracket(regions, finalists, champion, 0.0, self.round_scores)
 
     def __iter__(self):
         return self.regions.values().__iter__()
@@ -500,9 +529,9 @@ class Bracket:
 
     def set_expected_score(self):
         self.expected_score = 0.0
-        self.expected_score += ( self.finalists[0][6] / (self.midwest[6]+self.west[6])) * (round_scores[6] + self.finalists[0].seed)
-        self.expected_score += ( self.finalists[1][6] / (self.south[6]+self.east[6])) * (round_scores[6]+self.finalists[1].seed)
-        self.expected_score+=(self.champion[7]/(self.finalists[0][7]+self.finalists[1][7]))*(round_scores[7]+self.champion.seed)
+        self.expected_score += ( self.finalists[0][6] / (self.midwest[6]+self.west[6])) * (self.round_scores[6] + self.finalists[0].seed)
+        self.expected_score += ( self.finalists[1][6] / (self.south[6]+self.east[6])) * (self.round_scores[6]+self.finalists[1].seed)
+        self.expected_score+=(self.champion[7]/(self.finalists[0][7]+self.finalists[1][7]))*(self.round_scores[7]+self.champion.seed)
         for region in self.regions.values():
             self.expected_score += region.expected_score
   
@@ -542,7 +571,7 @@ class Bracket:
 
 
     def simulation_string(self):
-        return_string = ''
+        return_string = 'Score: %f\n' % self.expected_score
         # First, build each region
         for region in self.regions.values():
             return_string += region_string % (str(region))
@@ -617,8 +646,10 @@ def predictor():
 
     args = parser.parse_args()
 
+    round_scores = RoundScores()
+
     if args.champion_mode:
-        bracket=Bracket.fromfile(args.input)
+        bracket=Bracket.fromfile(args.input, round_scores)
         champions={}
         for i in xrange(0, num_champion_simulation_runs):
             bracket.simulate()
@@ -644,7 +675,7 @@ def predictor():
             strict_mode = True
             desired_champion = args.strict_find_champion
         print 'Desired champion: %s' % (desired_champion)
-        bracket = Bracket.fromfile(args.input)
+        bracket = Bracket.fromfile(args.input, round_scores)
 
         results = SimulateDesiredChampionResults()
 
@@ -667,7 +698,7 @@ def predictor():
         return 0
 
     if args.maximize_score:
-        bracket = Bracket.fromfile(args.input)
+        bracket = Bracket.fromfile(args.input, round_scores)
         print 'Simulation will stop after %d runs' % (maximize_score_runs)
         
         results = MaximizeScoreResults()
@@ -690,7 +721,7 @@ def predictor():
 
         return 0
 
-    bracket = Bracket.fromfile(args.input)
+    bracket = Bracket.fromfile(args.input, round_scores)
     bracket.simulate()
     sim_string = bracket.simulation_string()
     if not args.quiet:
