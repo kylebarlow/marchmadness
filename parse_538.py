@@ -80,7 +80,10 @@ def main():
         minned_probabilities = []
         for p in probabilities:
             if p == 0.0:
-                minned_probabilities.append( '0.0000001' )
+                if sys.float_info.min:
+                    minned_probabilities.append( str(sys.float_info.min) )
+                else:
+                    minned_probabilities.append( '2.22507385851e-308' )
             else:
                 minned_probabilities.append( str(p) )
         
