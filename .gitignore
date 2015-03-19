@@ -38,3 +38,5 @@ nosetests.xml
 output.txt
 html.dump
 tmp-best-bracket.txt
+nyt_html.dump
+nyt_scoring_data.csv
