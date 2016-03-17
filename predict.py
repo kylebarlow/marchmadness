@@ -485,62 +485,62 @@ class Bracket:
             if not strict_mode:
                 finalist_1 = midwest
             else:
-                finalist_1 = pick_winner(midwest, west, 6)
+                finalist_1 = pick_winner(midwest, east, 6)
                 while( str(finalist_1) != desired_champion ):
-                    self.regions['West'].simulate()
-                    west = self.regions['West'].teams_by_round[5][0]
-                    finalist_1 = pick_winner(midwest,west,6)
-        elif desired_champion_region == 'West':
+                    self.regions['East'].simulate()
+                    east = self.regions['East'].teams_by_round[5][0]
+                    finalist_1 = pick_winner(midwest,east,6)
+        elif desired_champion_region == 'East':
             if not strict_mode:
-                finalist_1 = west
+                finalist_1 = east
             else:
-                finalist_1 = pick_winner(midwest, west, 6)
+                finalist_1 = pick_winner(midwest, east, 6)
                 while( str(finalist_1) != desired_champion ):
                     self.regions['Midwest'].simulate()
                     midwest = self.regions['Midwest'].teams_by_round[5][0]
-                    finalist_1 = pick_winner(midwest, west, 6)
+                    finalist_1 = pick_winner(midwest, east, 6)
         else:
-            finalist_1 = pick_winner(midwest, west, 6)
+            finalist_1 = pick_winner(midwest, east, 6)
 
         if desired_champion_region == 'South':
             if not strict_mode:
                 finalist_2 = south
             else:
-                finalist_2 = pick_winner(south, east, 6)
+                finalist_2 = pick_winner(south, west, 6)
                 while( str(finalist_2) != desired_champion ):
-                    self.regions['East'].simulate()
-                    east = self.regions['East'].teams_by_round[5][0]
-                    finalist_2 = pick_winner(south, east, 6)
-        elif desired_champion_region == 'East':
+                    self.regions['West'].simulate()
+                    west = self.regions['West'].teams_by_round[5][0]
+                    finalist_2 = pick_winner(south, west, 6)
+        elif desired_champion_region == 'West':
             if not strict_mode:
-                finalist_2 = east
+                finalist_2 = west
             else:
-                finalist_2 = pick_winner(south, east, 6)
+                finalist_2 = pick_winner(south, west, 6)
                 while( str(finalist_2) != desired_champion ):
                     self.regions['South'].simulate()
                     south = self.regions['South'].teams_by_round[5][0]
-                    finalist_2 = pick_winner(south,east,6)
+                    finalist_2 = pick_winner(south,west,6)
         else:
-            finalist_2 = pick_winner(south, east, 6)
+            finalist_2 = pick_winner(south, west, 6)
 
         self.finalists = [finalist_1, finalist_2]
         # Now pick a champion
         if strict_mode:
             champion = pick_winner(finalist_1, finalist_2, 7)
             while( str(champion) != desired_champion ):
-                if desired_champion == str(finalist_1):
+                if desired_champion == str(finalist_2):
                     self.regions['South'].simulate()
                     south = self.regions['South'].teams_by_round[5][0]
-                    self.regions['East'].simulate()
-                    east = self.regions['East'].teams_by_round[5][0]
-                    finalist_2 = pick_winner(south, east, 6)
+                    self.regions['West'].simulate()
+                    west = self.regions['West'].teams_by_round[5][0]
+                    finalist_2 = pick_winner(south, west, 6)
                     champion = pick_winner(finalist_1, finalist_2, 7)
                 else:
                     self.regions['Midwest'].simulate()
                     midwest = self.regions['Midwest'].teams_by_round[5][0]
-                    self.regions['West'].simulate()
-                    west = self.regions['West'].teams_by_round[5][0]
-                    finalist_1 = pick_winner(midwest, west, 6)
+                    self.regions['East'].simulate()
+                    east = self.regions['East'].teams_by_round[5][0]
+                    finalist_1 = pick_winner(midwest, east, 6)
                     champion = pick_winner(finalist_1, finalist_2, 7)
             self.champion = champion
         else:
