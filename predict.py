@@ -61,7 +61,7 @@ map_to_nyt_names = {
 max_region_round = 5
 
 num_champion_simulation_runs = 20000
-desired_champion_simulation_runs = 1000
+desired_champion_simulation_runs = 10000000
 
 championship_string = '\n==========Championship==========\n'
 region_string = '\n==========%s==========\n'
@@ -258,6 +258,9 @@ class MaximizeScoreResults:
             self.best_bracket_score = bracket.expected_score
             print '\nFound new high score %.3f' % (self.best_bracket_score)
 
+    def __repr__(self):
+        return self.best_bracket.simulation_string()
+
 class SimulateDesiredChampionResults:
     def __init__(self):
         self.region_counts = {}
@@ -307,7 +310,7 @@ class SimulateDesiredChampionResults:
             if percentage >= view_threshold:
                 return_string += '%s: %.1f%%\n' % (team, percentage*100)
         return return_string
-        
+
 
 class Region:
     # Stores a region of the bracket and all team data for that region
@@ -399,10 +402,10 @@ class Region:
                 # This is how CBS sportsline leagues I've used work.
                 self.expected_score += self.scorer.get_score(round_number, this_winner, team1, team2)
                 this_round_teams.append(this_winner)
-            
+
             this_round_teams.sort(key=operator.attrgetter('seed'))
             self.teams_by_round[round_number] = this_round_teams
-            
+
 class Bracket:
     # Represents bracket and stores all region and team data
     def __init__(self, regions, finalists, champion, expected_score, scorer):
@@ -435,7 +438,7 @@ class Bracket:
 
     def __iter__(self):
         return self.regions.values().__iter__()
-  
+
     def simulate_champion(self, desired_champion, strict_mode):
         self.simulate_for_champion(desired_champion, strict_mode)
         while str(self.champion) != desired_champion:
@@ -476,7 +479,7 @@ class Bracket:
                 west = region_winner
             else:
                 raise Exception ('Region "%s" not recognized' % (region.name) )
-        
+
         # Then matchup region winners
         if desired_champion_region == 'Midwest':
             if not strict_mode:
@@ -562,7 +565,7 @@ class Bracket:
 
         for region in self.regions.values():
             self.expected_score += region.expected_score
-  
+
     def simulate(self):
         midwest = None
         south = None
@@ -582,7 +585,7 @@ class Bracket:
                 west = region_winner
             else:
                 raise Exception( 'Region "%s" not recognized' % (region.name) )
-        
+
         # Then matchup region winners
         finalist_1 = pick_winner(midwest, west, 6)
         finalist_2 = pick_winner(south, east, 6)
@@ -590,7 +593,7 @@ class Bracket:
 
         # Now pick a champion
         self.champion = pick_winner(finalist_1, finalist_2, 7)
-        
+
         self.midwest = midwest
         self.south = south
         self.east = east
@@ -643,7 +646,7 @@ def read_html(html_url, scorer):
                 pred_date = datetime.strptime(line.split(',')[1], date_format)
                 if pred_date > max_pred_date:
                     max_pred_date = pred_date
-        
+
         # Read in team data
         for line in lines[1:]:
             if line.startswith('mens') and datetime.strftime(max_pred_date, date_format) in line:
@@ -736,16 +739,16 @@ def predictor():
             if bracket.champion not in champions:
                 champions[bracket.champion] = 0
             champions[bracket.champion] += 1
-            
+
         output_list = [ (champions[champion], str(champion)) for champion in champions]
         output_list.sort(reverse=True)
-        
+
         print 'Percent chance of winning tournament:'
         for num_wins, name in output_list:
             win_percent = float(num_wins)*100 / float(num_champion_simulation_runs)
             if win_percent >= (view_threshold * 100):
                 print '  %s: %.1f%%' % (name, win_percent)
-        
+
         return 0
 
     if args.loose_find_champion != None or args.strict_find_champion != None:
@@ -757,7 +760,7 @@ def predictor():
         print 'Desired champion: %s' % (desired_champion)
         bracket = Bracket.fromhtml(args.input_html, scorer)
 
-        results = SimulateDesiredChampionResults()
+        results = MaximizeScoreResults()
 
         print 'Simulation will stop after %d runs generate desired champion' % (desired_champion_simulation_runs)
         w = MultiWorker('running desired champion simulations', simulate_desired_champion, results.cb)
@@ -780,9 +783,9 @@ def predictor():
     if args.maximize_score:
         bracket = Bracket.fromhtml(args.input_html, scorer)
         print 'Simulation will stop after %d runs' % (args.maximize_score_runs)
-        
+
         results = MaximizeScoreResults()
-        
+
         w = MultiWorker('running maximize score simulations', simulate_max_score, results.cb)
 
         for x in xrange(1, args.maximize_score_runs+1):
