@@ -39,3 +39,4 @@ output.txt
 html.dump
 tmp-best-bracket.txt
 nyt_html.dump
+data_cache.csv
