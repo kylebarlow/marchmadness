@@ -245,13 +245,16 @@ class Team:
         self.seed_slot = self.seed
 
 class MaximizeScoreResults:
-    def __init__(self):
+    def __init__(self, desired_champion = None):
         self.best_bracket_score = 0.0
         self.best_bracket = None
+        self.desired_champion = desired_champion
 
     def cb(self, tup):
-        run_number,bracket = tup
+        run_number, bracket = tup
         if bracket.expected_score > self.best_bracket_score:
+            if self.desired_champion and self.desired_champion != bracket.champion:
+                return
             with open('tmp-best-bracket.txt', 'w') as f:
                 f.write( bracket.simulation_string() )
             self.best_bracket = bracket
@@ -712,6 +715,9 @@ def predictor():
                         type = int,
                         default = default_maximize_score_runs,
                         help = "Number of random brackets to generate when attempting to maximize score")
+    parser.add_argument('--maximize_score_champion',
+                        default = None,
+                        help = "Maximize score champion")
 
     find_champion_group = parser.add_mutually_exclusive_group()
     find_champion_group.add_argument('-l', '--loose_find_champion',
@@ -781,7 +787,7 @@ def predictor():
         bracket = Bracket.fromhtml(args.input_html, scorer)
         print 'Simulation will stop after %d runs' % (args.maximize_score_runs)
         
-        results = MaximizeScoreResults()
+        results = MaximizeScoreResults(desired_champion = args.maximize_score_champion)
         
         w = MultiWorker('running maximize score simulations', simulate_max_score, results.cb)
 
