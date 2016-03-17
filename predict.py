@@ -27,16 +27,20 @@ import operator
 import random
 import time
 from multiprocessing import Pool
+import urllib
+import re
+from datetime import datetime
 
 # Constants
-program_description = 'Python script to auto-generate "quick pick" march madness brackets from probability input (as in the format of, but not necessarily, the 538 data from Nate Silver)\nEach probability input is assumed to be built up conditionally'
+program_description = 'Python script to auto-generate "quick pick" march madness brackets from probability input (as in the format of, but not necessarily, the 538 data)\nEach probability input is assumed to be built up conditionally'
 
-default_input_file = 'data.csv'
+default_cache_file = 'data_cache.csv'
+default_input_html = 'http://projects.fivethirtyeight.com/march-madness-api/2016/fivethirtyeight_ncaa_forecasts.csv'
 default_output_file = 'output.txt'
 default_nyt_file = 'nyt_scoring_data.csv'
 
 # Expected header string
-header_string = 'REGION,SEED,TEAM,FIRST FOUR,ROUND OF 32,ROUND OF 16,ELITE 8,FINAL 4,FINALS,CHAMPIONS'
+header_string = 'gender,forecast_date,playin_flag,rd1_win,rd2_win,rd3_win,rd4_win,rd5_win,rd6_win,rd7_win,team_alive,team_id,team_name,team_rating,team_region,team_seed'
 
 # Mapping for strings describing each round to an integer (for indexing)
 # Counting starts with 1
@@ -52,34 +56,12 @@ round_dictionary = {
 
 # Maps 538 team names to NYT team names (when needed)
 map_to_nyt_names = {
-    'Mississippi' : 'Ole Miss',
-    'Ohio State' : 'Ohio St.',
-    'North Carolina' : 'U.N.C.',
-    'Georgia State' : 'Georgia St.',
-    'Virginia Commonwealth' : 'V.C.U.',
-    'Oklahoma State' : 'Okla. St.',
-    'North Carolina State' : 'N.C. State',
-    'Iowa State' : 'Iowa St.',
-    'Michigan State' : 'Mich. St.',
-    'Louisiana State' : 'L.S.U.',
-    'West Virginia' : 'W. Va.',
-    'UCLA' : 'U.C.L.A.',
-    'UC Irvine' : 'UC-Irvine',
-    'Wichita State' : 'Wichita St.',
-    'Boise State' : 'Boise St.',
-    'New Mexico State' : 'N.M. State',
-    'SMU' : 'S.M.U.',
-    'San Diego State' : 'San Diego St.',
-    'Eastern Washington' : 'E. Wash.',
-    'Stephen F. Austin' : 'S. F. Austin',
-    'North Dakota State' : 'N.D. St.',
-    'UAB' : 'U.A.B.',
 }
 
 max_region_round = 5
 
 num_champion_simulation_runs = 20000
-desired_champion_simulation_runs = 1000
+desired_champion_simulation_runs = 10000000
 
 championship_string = '\n==========Championship==========\n'
 region_string = '\n==========%s==========\n'
@@ -212,17 +194,25 @@ class Team:
     @classmethod
     def init_from_line(cls, team_line):
         line_data = team_line.split(',')
-        region = line_data[0]
-        seed = int(line_data[1])
-        name = line_data[2]
+        region = line_data[14]
+        m = re.match('(\d+)(.*?)', line_data[15])
+        if m:
+            seed = int( m.group(1) )
+        else:
+            raise Exception( "Couldn't match seed: " + str(line_data[15]) )
+        name = line_data[12]
         round_odds = []
         for item in line_data[3:10]:
+            item = item.strip()
             if item == '':
                 round_odds.append(None)
-            elif item == '<0.1':
-                round_odds.append(.00001)
+            elif item == '0':
+                round_odds.append(0.000000000000001)
             else:
-                round_odds.append(float(item))
+                x = float(item)
+                if x == 0.0:
+                    x = 0.000000000000001
+                round_odds.append(x)
 
         # Make the probabilities conditional
         conditional_round_odds = []
@@ -267,6 +257,9 @@ class MaximizeScoreResults:
             self.best_bracket = bracket
             self.best_bracket_score = bracket.expected_score
             print '\nFound new high score %.3f' % (self.best_bracket_score)
+
+    def __repr__(self):
+        return self.best_bracket.simulation_string()
 
 class SimulateDesiredChampionResults:
     def __init__(self):
@@ -317,7 +310,7 @@ class SimulateDesiredChampionResults:
             if percentage >= view_threshold:
                 return_string += '%s: %.1f%%\n' % (team, percentage*100)
         return return_string
-        
+
 
 class Region:
     # Stores a region of the bracket and all team data for that region
@@ -378,6 +371,7 @@ class Region:
                         self.simulate()
                         return
             elif len(teams) != 1:
+                print teams
                 raise Exception('Incorrect number of teams for seed %d' % (seed))
         self.teams_by_round[1] = [i[0] for i in round2_teams.values()]
 
@@ -408,10 +402,10 @@ class Region:
                 # This is how CBS sportsline leagues I've used work.
                 self.expected_score += self.scorer.get_score(round_number, this_winner, team1, team2)
                 this_round_teams.append(this_winner)
-            
+
             this_round_teams.sort(key=operator.attrgetter('seed'))
             self.teams_by_round[round_number] = this_round_teams
-            
+
 class Bracket:
     # Represents bracket and stores all region and team data
     def __init__(self, regions, finalists, champion, expected_score, scorer):
@@ -423,8 +417,8 @@ class Bracket:
         self.scorer = scorer
 
     @classmethod
-    def fromfile(cls, bracket_file, scorer):
-        regions, team_names = read_input(bracket_file, scorer)
+    def fromhtml(cls, bracket_html, scorer):
+        regions, team_names = read_html(bracket_html, scorer)
 
         return cls(regions, None, None, 0.0, scorer)
 
@@ -444,7 +438,7 @@ class Bracket:
 
     def __iter__(self):
         return self.regions.values().__iter__()
-  
+
     def simulate_champion(self, desired_champion, strict_mode):
         self.simulate_for_champion(desired_champion, strict_mode)
         while str(self.champion) != desired_champion:
@@ -485,7 +479,7 @@ class Bracket:
                 west = region_winner
             else:
                 raise Exception ('Region "%s" not recognized' % (region.name) )
-        
+
         # Then matchup region winners
         if desired_champion_region == 'Midwest':
             if not strict_mode:
@@ -571,7 +565,7 @@ class Bracket:
 
         for region in self.regions.values():
             self.expected_score += region.expected_score
-  
+
     def simulate(self):
         midwest = None
         south = None
@@ -591,7 +585,7 @@ class Bracket:
                 west = region_winner
             else:
                 raise Exception( 'Region "%s" not recognized' % (region.name) )
-        
+
         # Then matchup region winners
         finalist_1 = pick_winner(midwest, west, 6)
         finalist_2 = pick_winner(south, east, 6)
@@ -599,7 +593,7 @@ class Bracket:
 
         # Now pick a champion
         self.champion = pick_winner(finalist_1, finalist_2, 7)
-        
+
         self.midwest = midwest
         self.south = south
         self.east = east
@@ -628,10 +622,13 @@ class Bracket:
 
 # Functions
 
-def read_input(bracket_file, scorer):
+def read_html(html_url, scorer):
+    if not os.path.isfile( default_cache_file ):
+        urllib.urlretrieve (html_url, default_cache_file)
+
     regions = {}
     team_names = set()
-    with open(bracket_file, 'r') as f:
+    with open(default_cache_file, 'r') as f:
         lines = f.readlines()
 
         # Check for correct header line
@@ -641,14 +638,24 @@ def read_input(bracket_file, scorer):
             print header_string
             raise Exception("Header line doesn't match expected format")
 
+        # Figure out most recent prediction date
+        max_pred_date = datetime.strptime('1900-01-01', '%Y-%m-%d')
+        date_format = '%Y-%m-%d'
+        for line in lines:
+            if line.startswith('mens'):
+                pred_date = datetime.strptime(line.split(',')[1], date_format)
+                if pred_date > max_pred_date:
+                    max_pred_date = pred_date
+
         # Read in team data
         for line in lines[1:]:
-            team = Team.init_from_line(line.strip())
-            team_names.add(team.name)
-            if team.region not in regions:
-                regions[team.region] = Region.init_empty(team.region, scorer)
+            if line.startswith('mens') and datetime.strftime(max_pred_date, date_format) in line:
+                team = Team.init_from_line(line.strip())
+                team_names.add(team.name)
+                if team.region not in regions:
+                    regions[team.region] = Region.init_empty(team.region, scorer)
 
-            regions[team.region].append(team)
+                regions[team.region].append(team)
 
         # Sort each region list of teams by seed
         for region in regions.values():
@@ -682,9 +689,9 @@ def simulate_max_score(run_number, original_bracket):
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
-    parser.add_argument('-i', '--input',
-                        default = default_input_file,
-                        help = "Input data file to read in. Header must be in a specific format")
+    parser.add_argument('-i', '--input_html',
+                        default = default_input_html,
+                        help = "Input FiveThirtyEight csv to parse")
     parser.add_argument('-o', '--output',
                         default = default_output_file,
                         help = "File to save output")
@@ -725,23 +732,23 @@ def predictor():
         scorer = Scorer()
 
     if args.champion_mode:
-        bracket=Bracket.fromfile(args.input, scorer)
+        bracket=Bracket.fromhtml(args.input_html, scorer)
         champions={}
         for i in xrange(0, num_champion_simulation_runs):
             bracket.simulate()
             if bracket.champion not in champions:
                 champions[bracket.champion] = 0
             champions[bracket.champion] += 1
-            
+
         output_list = [ (champions[champion], str(champion)) for champion in champions]
         output_list.sort(reverse=True)
-        
+
         print 'Percent chance of winning tournament:'
         for num_wins, name in output_list:
             win_percent = float(num_wins)*100 / float(num_champion_simulation_runs)
             if win_percent >= (view_threshold * 100):
                 print '  %s: %.1f%%' % (name, win_percent)
-        
+
         return 0
 
     if args.loose_find_champion != None or args.strict_find_champion != None:
@@ -751,9 +758,9 @@ def predictor():
             strict_mode = True
             desired_champion = args.strict_find_champion
         print 'Desired champion: %s' % (desired_champion)
-        bracket = Bracket.fromfile(args.input, scorer)
+        bracket = Bracket.fromhtml(args.input_html, scorer)
 
-        results = SimulateDesiredChampionResults()
+        results = MaximizeScoreResults()
 
         print 'Simulation will stop after %d runs generate desired champion' % (desired_champion_simulation_runs)
         w = MultiWorker('running desired champion simulations', simulate_desired_champion, results.cb)
@@ -774,11 +781,11 @@ def predictor():
         return 0
 
     if args.maximize_score:
-        bracket = Bracket.fromfile(args.input, scorer)
+        bracket = Bracket.fromhtml(args.input_html, scorer)
         print 'Simulation will stop after %d runs' % (args.maximize_score_runs)
-        
+
         results = MaximizeScoreResults()
-        
+
         w = MultiWorker('running maximize score simulations', simulate_max_score, results.cb)
 
         for x in xrange(1, args.maximize_score_runs+1):
@@ -797,7 +804,7 @@ def predictor():
 
         return 0
 
-    bracket = Bracket.fromfile(args.input, scorer)
+    bracket = Bracket.fromhtml(args.input_html, scorer)
     bracket.simulate()
     sim_string = bracket.simulation_string()
     if not args.quiet:
