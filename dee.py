@@ -35,11 +35,38 @@ region_pairings = ( ('east', 'west'), ('midwest', 'south') )
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
     0 : 'FIRST FOUR',
-    1 : 'ROUND OF 32',
-    2 : 'ROUND OF 16',
-    3 : 'ELITE 8',
-    4 : 'FINAL 4',
-    5 : 'FINALS',
+    1 : 'ROUND OF 64',
+    2 : 'ROUND OF 32',
+    3 : 'ROUND OF 16',
+    4 : 'ELITE 8',
+    5 : 'FINAL 4',
+    6 : 'FINALS',
+}
+
+seed_pairs_by_round = {
+    1 : {
+        1:16, 16:1,
+        8:9, 9:8,
+        5:12, 12:5,
+        4:13, 13:4,
+        6:11, 11:6,
+        3:14, 14:3,
+        7:10, 10:7,
+        2:15, 15:2,
+    },
+    2 : {
+        1:8, 8:1,
+        4:5, 5:4,
+        3:6, 6:3,
+        2:7, 7:2,
+    },
+    3 : {
+        1:4, 4:1,
+        2:3, 3:2,
+    },
+    4 : {
+        1:2, 2:1,
+    },
 }
 
 class Team:
@@ -74,15 +101,28 @@ class Team:
     #      return self.seed < other.seed
 
 class BracketTree(object):
-    def __init__(self, round_name, round_number, region_name = None):
+    def __init__(self, round_number, region_name = None, seeds = None):
         self._children = []
         self._parent = None
-        self._round_name = round_name
+        self._round_name = round_dictionary[round_number]
         self._round_number = round_number
         self._region_name = region_name
+        self._seeds = seeds
 
         self._teams = []
         self._winning_team_index = None
+
+    def team_visualize(self, spacer = ''):
+        vis_lines = []
+        if self._region_name != None and self._round_number == 4:
+            vis_lines.append( '{}Round {} - {} - {}'.format(spacer, self._round_number, self._round_name, self._region_name.capitalize()) )
+        else:
+            vis_lines.append( '{}Round {} - {}'.format(spacer, self._round_number,self._round_name) )
+        for child in self._children:
+            vis_lines.extend( child.team_visualize( spacer = spacer + '  ' ) )
+        for team in self._teams:
+            vis_lines.append( ' {}{}'.format(spacer, team.name) )
+        return vis_lines
 
     def add_team(self, team):
         self._teams.append( team )
@@ -97,37 +137,36 @@ class BracketTree(object):
     def set_parent(self, parent):
         self._parent = parent
 
-    def _init_add_children(self, regional_teams, min_seed, max_seed, cls):
+    def _init_add_children(self, regional_teams, seeds, cls):
         # Helper function used by init_starting_bracket
-        team1_seed = min_seed
-        team2_seed = max_seed
-        seed_pairs = []
-        while team1_seed < team2_seed:
-            seed_pairs.append( (team1_seed, team2_seed) )
-            team1_seed += 1
-            team2_seed -= 1
-
-        # Make sure there are an even number of pairs
-        assert( ( len(seed_pairs) % 2 ) == 0 )
-
-        # Build up region from bottom up
-        # TODO: switch this to be top down
-        raise Exception('see comment above')
-        first_round_games = []
-        for seed_pair in seed_pairs:
-            first_round_game = cls( round_dictionary[1], 1, region_name = self._region_name )
-            for seed in seed_pair:
-                if len( regional_teams[seed] ) == 2:
-                    zero_round_game = cls( round_dictionary[0], 0, region_name = self._region_name )
+        assert( len(seeds) == len(regional_teams) )
+        assert( len(seeds) >= 2 and len(seeds) % 2 == 0 )
+        if len(seeds) > 2:
+            for winning_seed in seeds[:2]:
+                child = cls( self._round_number - 1, region_name = self._region_name )
+                child_seeds = [winning_seed]
+                current_round = self._round_number - 1
+                while current_round > 0:
+                    new_child_seeds = [ seed_pairs_by_round[current_round][s] for s in child_seeds]
+                    child_seeds.extend( new_child_seeds )
+                    current_round -= 1
+                child_seeds.sort()
+                child._init_add_children(
+                    { k : regional_teams[k] for k in regional_teams if k in child_seeds },
+                    child_seeds, cls,
+                )
+                self.add_child( child )
+        else:
+            for seed in seeds:
+                if len(regional_teams[seed]) > 1:
+                    # First four eligible
+                    child = cls( self._round_number - 1, region_name = self._region_name )
                     for team in regional_teams[seed]:
-                        zero_round_game.add_team( team )
-                    first_round_game.add_child( zero_round_game )
-                elif len( regional_teams[seed] ) == 1::
-                    first_round_game.add_team( regional_teams[seed][0] )
+                        child.add_team(team)
+                    self.add_child( child )
                 else:
-                    raise Exception()
-
-        sys.exit()
+                    for team in regional_teams[seed]:
+                        self.add_team( team )
 
     @classmethod
     def init_starting_bracket(cls):
@@ -157,16 +196,17 @@ class BracketTree(object):
 
         # Initialize root node (finals) and semifinals
         max_round = max(round_dictionary.keys())
-        finals = cls(round_dictionary[max_round], max_round)
+        finals = cls(max_round)
         for region_names in region_pairings:
-            semifinals = cls(round_dictionary[max_round-1], max_round-1)
+            final_four = cls(max_round-1)
             for region_name in region_names:
-                final_four = cls(round_dictionary[max_round-2], max_round-2, region_name = region_name)
-                final_four._init_add_children( teams[region_name], min_seed, max_seed, cls )
-                semifinals.add_child( final_four )
-            finals.add_child( semifinals )
+                elite_eight = cls(max_round-2, region_name = region_name)
+                seeds = list( range(min_seed, max_seed + 1) )
+                elite_eight._init_add_children( teams[region_name], seeds, cls )
+                final_four.add_child( elite_eight )
+            finals.add_child( final_four )
 
-        return None
+        return finals
 
 def predictor():
     # Setup argument parser
@@ -187,6 +227,7 @@ def predictor():
 
     if args.maximize_score:
         bt = BracketTree.init_starting_bracket()
+        print ( '\n'.join( bt.team_visualize() ) )
         return 0
 
 if __name__ == "__main__":
