@@ -32,6 +32,8 @@ default_data_file = 'elo.tsv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
 
+elo_k_factor = 26 # How fast ELO changes
+
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
     0 : 'FIRST FOUR',
@@ -85,7 +87,7 @@ class Team:
         region = line_data[1]
         try:
             seed = int(line_data[2])
-            elo = int(line_data[3])
+            elo = float(line_data[3])
         except ValueError:
             print ('Error parsing this line:')
             print (team_line)
@@ -99,6 +101,24 @@ class Team:
 
     # def __lt__(self, other):
     #      return self.seed < other.seed
+
+    def update_elo(self, number_wins, win_prob):
+        self.elo = self.elo + elo_k_factor * (number_wins - win_prob)
+
+    def random_match(self, other):
+        # Returns true if we randomly beat other team, false if not
+        # Also updates ELOs
+        win_prob = 1.0 / (1.0 + 10.0 ** ((other.elo - self.elo) / 400.0) )
+        number_wins = 0
+        if random.random() < win_prob:
+            number_wins += 1
+        self.update_elo( number_wins, win_prob )
+        other.update_elo( 1 - number_wins, 1.0 - win_prob )
+
+        if number_wins == 1:
+            return True
+        else:
+            return False
 
 class BracketTree(object):
     def __init__(self, round_number, region_name = None, seeds = None):
@@ -114,14 +134,17 @@ class BracketTree(object):
 
     def team_visualize(self, spacer = ''):
         vis_lines = []
-        if self._region_name != None and self._round_number == 4:
-            vis_lines.append( '{}Round {} - {} - {}'.format(spacer, self._round_number, self._round_name, self._region_name.capitalize()) )
-        else:
-            vis_lines.append( '{}Round {} - {}'.format(spacer, self._round_number,self._round_name) )
+        # if self._region_name != None and self._round_number >= 4:
+        #     vis_lines.append( '{}Round {} - {} - {}'.format(spacer, self._round_number, self._round_name, self._region_name.capitalize()) )
+        # else:
+        #     vis_lines.append( '{}Round {} - {}'.format(spacer, self._round_number,self._round_name) )
         for child in self._children:
             vis_lines.extend( child.team_visualize( spacer = spacer + '  ' ) )
-        for team in self._teams:
-            vis_lines.append( ' {}{}'.format(spacer, team.name) )
+        if self._winning_team_index == None:
+            for team in self._teams:
+                vis_lines.append( ' {}{}'.format(spacer, team.name) )
+        else:
+            vis_lines.append( ' {}{} def. {}'.format(spacer, self._teams[self._winning_team_index].name, self._teams[1-self._winning_team_index].name) )
         return vis_lines
 
     def add_team(self, team):
@@ -159,12 +182,13 @@ class BracketTree(object):
         else:
             for seed in seeds:
                 if len(regional_teams[seed]) > 1:
-                    # First four eligible
+                    # First four seed, add one more child
                     child = cls( self._round_number - 1, region_name = self._region_name )
                     for team in regional_teams[seed]:
                         child.add_team(team)
                     self.add_child( child )
                 else:
+                    # Not a first four seed
                     for team in regional_teams[seed]:
                         self.add_team( team )
 
@@ -208,6 +232,20 @@ class BracketTree(object):
 
         return finals
 
+    def simulate_fill(self):
+        # Randomly fills in bracket based on ELO simulation
+        # Must be run on blank bracket
+        assert( self._winning_team_index == None )
+        for child in self._children:
+            child.simulate_fill()
+            self._teams.append( child._teams[child._winning_team_index] )
+
+        assert( len( self._teams ) == 2 )
+        if self._teams[0].random_match( self._teams[1] ):
+            self._winning_team_index = 0
+        else:
+            self._winning_team_index = 1
+
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
@@ -227,6 +265,7 @@ def predictor():
 
     if args.maximize_score:
         bt = BracketTree.init_starting_bracket()
+        bt.simulate_fill()
         print ( '\n'.join( bt.team_visualize() ) )
         return 0
 
