@@ -26,6 +26,7 @@ import sys
 import random
 import copy
 import multiprocessing
+import pickle
 
 # NumPy
 import numpy as np
@@ -77,7 +78,11 @@ seed_pairs_by_round = {
     },
 }
 
-class Team:
+class MonteCarloBracketSimulator(object):
+    def __init__(self):
+        pass
+
+class Team(object):
     def __init__(self, name, region, seed, elo):
         self.region = region.lower()
         self.seed = seed
@@ -289,16 +294,17 @@ class BracketTree(object):
             child.winners_dict( furthest_round )
         return furthest_round
 
-def simulate_winners_vector(bt):
-    bt_copy = copy.deepcopy(bt)
+def simulate_winners_vector(bt_pickle):
+    bt_copy = pickle.loads(bt_pickle)
     bt_copy.simulate_fill()
     return bt_copy.winners_vector()
 
 def run_stats( number_simulations = 10000 ):
     bt = BracketTree.init_starting_bracket()
     # Initial simulation to initialize vector
+    bt_pickle = pickle.dumps( bt )
     global v
-    v = simulate_winners_vector(bt)
+    v = simulate_winners_vector(bt_pickle)
     def callback_helper( bt_sim_v ):
         global v
         v += bt_sim_v
@@ -308,9 +314,9 @@ def run_stats( number_simulations = 10000 ):
 
     for sim_num in range(1, number_simulations):
         if use_multiprocessing:
-            pool.apply_async( simulate_winners_vector, args = (bt,), callback = callback_helper )
+            pool.apply_async( simulate_winners_vector, args = (bt_pickle,), callback = callback_helper )
         else:
-            callback_helper( simulate_winners_vector(bt) )
+            callback_helper( simulate_winners_vector(bt_pickle) )
 
     if use_multiprocessing:
         pool.close()
@@ -346,14 +352,14 @@ def predictor():
                         default = False,
                         help = "Doesn't print bracket output to terminal")
     parser.add_argument('-s', '--stats',
-                        action = 'store_true',
-                        default = True,
+                        type = int,
+                        default = 0,
                         help = "Run many times to get statistics")
 
     args = parser.parse_args()
 
-    if args.stats:
-        run_stats()
+    if args.stats > 0:
+        run_stats( args.stats )
 
 if __name__ == "__main__":
     predictor()
