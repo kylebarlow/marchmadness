@@ -19,13 +19,19 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-# Python import statements
+# Python standard library import statements
 import argparse
 import os
 import sys
 import random
+import copy
+import multiprocessing
+
+# NumPy
+import numpy as np
 
 # Constants
+use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
 default_data_file = 'elo.tsv' # Caches url results
@@ -246,6 +252,89 @@ class BracketTree(object):
         else:
             self._winning_team_index = 1
 
+    def all_team_names(self):
+        teams = set()
+        for child in self._children:
+            teams.update( child.all_team_names() )
+        teams.update( [team.name for team in self._teams] )
+        return teams
+
+    def winners_vector(self):
+        '''
+        Returns vector representing how far teams advanced
+        '''
+        winners_dict = self.winners_dict()
+        v = np.zeros( (len(winners_dict), len(round_dictionary)) )
+        team_names = sorted( winners_dict.keys() )
+        for i, team_name in enumerate(team_names):
+            if winners_dict[team_name] >= 0:
+                for j in range(0, winners_dict[team_name]+1):
+                    v[i][j] += 1
+        return v
+
+    def team_names(self):
+        return sorted( self.winners_dict().keys() )
+
+    def winners_dict(self, furthest_round = None):
+        if furthest_round == None:
+            min_round = min(round_dictionary.keys())
+            furthest_round = {name : min_round - 1 for name in self.all_team_names()}
+        for team in self._teams:
+            if self._round_number - 1 > furthest_round[team.name]:
+                furthest_round[team.name] = self._round_number - 1
+        winning_team_name = self._teams[self._winning_team_index].name
+        if self._round_number > furthest_round[winning_team_name]:
+            furthest_round[winning_team_name] = self._round_number
+        for child in self._children:
+            child.winners_dict( furthest_round )
+        return furthest_round
+
+def simulate_winners_vector(bt):
+    bt_copy = copy.deepcopy(bt)
+    bt_copy.simulate_fill()
+    return bt_copy.winners_vector()
+
+def run_stats( number_simulations = 10000 ):
+    bt = BracketTree.init_starting_bracket()
+    # Initial simulation to initialize vector
+    global v
+    v = simulate_winners_vector(bt)
+    def callback_helper( bt_sim_v ):
+        global v
+        v += bt_sim_v
+
+    if use_multiprocessing:
+        pool = multiprocessing.Pool()
+
+    for sim_num in range(1, number_simulations):
+        if use_multiprocessing:
+            pool.apply_async( simulate_winners_vector, args = (bt,), callback = callback_helper )
+        else:
+            callback_helper( simulate_winners_vector(bt) )
+
+    if use_multiprocessing:
+        pool.close()
+        pool.join()
+
+    v /= float( number_simulations )
+    print_list = []
+    # Run simulation to fill in team names
+    bt.simulate_fill()
+    for i, team_name in enumerate( bt.team_names() ):
+        champion_percentage = v[i][ len(round_dictionary) - 1 ]
+        l = list( reversed( v[i] ) )
+        l.append( team_name )
+        print_list.append( l )
+    print_list.sort( reverse = True )
+    for row in print_list:
+        line = ''
+        for x in row:
+            if isinstance(x, str):
+                line += x
+            else:
+                line += '%.2f ' % x
+        print ( line )
+
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
@@ -256,18 +345,15 @@ def predictor():
                         action = 'store_true',
                         default = False,
                         help = "Doesn't print bracket output to terminal")
-    parser.add_argument('-m', '--maximize_score',
+    parser.add_argument('-s', '--stats',
                         action = 'store_true',
                         default = True,
-                        help = "Finds bracket with maximum expected score")
+                        help = "Run many times to get statistics")
 
     args = parser.parse_args()
 
-    if args.maximize_score:
-        bt = BracketTree.init_starting_bracket()
-        bt.simulate_fill()
-        print ( '\n'.join( bt.team_visualize() ) )
-        return 0
+    if args.stats:
+        run_stats()
 
 if __name__ == "__main__":
-    sys.exit( predictor() )
+    predictor()
