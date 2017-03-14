@@ -26,7 +26,9 @@ import sys
 import random
 import copy
 import multiprocessing
+import queue
 import pickle
+import threading
 
 # NumPy
 import numpy as np
@@ -299,29 +301,50 @@ def simulate_winners_vector(bt_pickle):
     bt_copy.simulate_fill()
     return bt_copy.winners_vector()
 
+class CallbackVectorQueue(object):
+    def __init__(self, initial_v):
+        self.q = queue.Queue()
+        self.v = initial_v
+        self.trials = 0
+
+        self.thread = threading.Thread(target=self.thread_run)
+        self.thread.daemon = True # Daemonize thread
+        self.thread.start()
+
+    def thread_run(self):
+        while True:
+            self.v += self.q.get()
+            self.trials += 1
+
+    def callback(self, v):
+        self.q.put(v)
+
+    def close(self):
+        while not self.q.empty():
+            time.sleep(0.001)
+
 def run_stats( number_simulations = 10000 ):
     bt = BracketTree.init_starting_bracket()
     # Initial simulation to initialize vector
     bt_pickle = pickle.dumps( bt )
-    global v
-    v = simulate_winners_vector(bt_pickle)
-    def callback_helper( bt_sim_v ):
-        global v
-        v += bt_sim_v
+    initial_v = simulate_winners_vector(bt_pickle)
+    v_callback = CallbackVectorQueue(initial_v)
 
     if use_multiprocessing:
         pool = multiprocessing.Pool()
 
-    for sim_num in range(1, number_simulations):
+    for sim_num in range(0, number_simulations):
         if use_multiprocessing:
-            pool.apply_async( simulate_winners_vector, args = (bt_pickle,), callback = callback_helper )
+            pool.apply_async( simulate_winners_vector, args = (bt_pickle,), callback = v_callback.callback )
         else:
-            callback_helper( simulate_winners_vector(bt_pickle) )
+            v_callback.callback( simulate_winners_vector(bt_pickle) )
 
     if use_multiprocessing:
         pool.close()
         pool.join()
+    v_callback.close()
 
+    v = v_callback.v
     v /= float( number_simulations )
     print_list = []
     # Run simulation to fill in team names
@@ -340,6 +363,7 @@ def run_stats( number_simulations = 10000 ):
             else:
                 line += '%.2f ' % x
         print ( line )
+    print ( 'Total trials: %d' % v_callback.trials )
 
 def predictor():
     # Setup argument parser
