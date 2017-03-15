@@ -345,6 +345,14 @@ class BracketTree(object):
         teams.update( [team.name for team in self._teams] )
         return teams
 
+    def all_team_seeds(self):
+        seeds = {}
+        for child in self._children:
+            seeds.update( child.all_team_seeds() )
+        for team in self._teams:
+            seeds[team.name] = team.seed
+        return seeds
+
     def winners_vector(self):
         '''
         Returns vector representing how far teams advanced
