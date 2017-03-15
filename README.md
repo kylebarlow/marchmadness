@@ -16,10 +16,14 @@ Scoring for the CBS Sports bracket game I am personally in is implemented, but t
 * pip install -r REQUIREMENTS
 
 ## Features
-Run ./predict.py -h for a list of help options
+Run `./predict.py -h` for a list of help options
 * Generate a "quick-pick" bracket
 `./predict.py -q`
 * Run many simulations to look at summary statistics (useful for comparison with other probabilities to see how well the model is calibrated)
 `./predict.py -s`
 * Run a Monte Carlo simulation to try and find optimal bracket for scoring scheme
 `./predict.py -m 20`
+
+Run `./optimal_8.py -h` for a list of help options for Seed 8 Pools.
+* `./optimal_8.py 103` to run ELO simulations to choose the optimal set of 8 teams that will beat a particular score (`103` in this case)
+* `./optimal_8.py 103 -b 0 0 5 10 15 20` to run ELO simulations for a per-round bonus structure of 0 points in first two rounds, 5 points in sweet 16, 10 points in elite 8, 15 points for final four and 20 points for winning the championship.
