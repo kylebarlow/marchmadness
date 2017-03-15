@@ -13,3 +13,8 @@ Run ./predict.py -h for a list of help options
 * Generate a "quick-pick" bracket (no flag needed)
 * Run many simulations and model the likelihood of each team winning the championship (--champion_mode)
 * Run simulations until a specific, desired champion is found (--find_champion)
+
+Getting started
+---------------
+* install python3
+* pip install -r REQUIREMENTS
