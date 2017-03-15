@@ -9,6 +9,8 @@ of 8 teams to use in a seed 8 pool
 import argparse
 import copy
 import itertools
+import os
+import csv
 
 import numpy as np
 import scipy.stats
@@ -18,6 +20,14 @@ from predict import BracketTree
 
 
 def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
+
+    # prepare output file
+    output_filename = os.path.join('cache', 'optimal_8.csv')
+    if not os.path.isdir( os.path.dirname( output_filename ) ):
+        os.makedirs( os.path.dirname( output_filename ) )
+    stream = open(output_filename, 'w')
+    writer = csv.writer(stream)
+    writer.writerow(['p_winning'] + ['team-%d' % i for i in range(1, 9)])
 
     # default no bonus payout
     if bonuses is None:
@@ -80,6 +90,9 @@ def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
             max_p = p
             max_teams = teams
             max_total_payouts = total_payouts
+
+        writer.writerow((p, ) + teams)
+    stream.close()
 
     return max_p, max_teams, max_total_payouts
 
