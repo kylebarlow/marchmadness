@@ -11,6 +11,10 @@ The script can also run a Monte Carlo simulated annealing simulation to try and 
 
 Scoring for the CBS Sports bracket game I am personally in is implemented, but this should be relatively easy to modify to change for other games
 
+## Getting started
+* install python3
+* pip install -r REQUIREMENTS
+
 ## Features
 Run ./predict.py -h for a list of help options
 * Generate a "quick-pick" bracket (no flag needed; default mode)
