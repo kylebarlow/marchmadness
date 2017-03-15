@@ -88,6 +88,10 @@ class MonteCarloBracketSimulator(object):
         self.last_score = self.highest_score
         self.temperature = 100.0
 
+    def set_last_bt(self, bt):
+        self.last_bt = bt.copy()
+        self.last_score = bt.cbs_score()
+
     def boltzmann(self, bt):
         bt_score = bt.cbs_score()
         score_delta = self.last_score - bt_score
@@ -111,6 +115,9 @@ class MonteCarloBracketSimulator(object):
             self.highest_bt = bt.copy()
 
         return True
+
+    def copy(self):
+        return pickle.loads( pickle.dumps(self) )
 
 class Team(object):
     def __init__(self, name, region, seed, elo):
@@ -184,19 +191,17 @@ class BracketTree(object):
         # Return fast copy by pickling
         return pickle.loads( pickle.dumps(self) )
 
-    def team_visualize(self, spacer = ''):
+    def team_visualize(self, spacer_len = 0):
         vis_lines = []
-        # if self._region_name != None and self._round_number >= 4:
-        #     vis_lines.append( '{}Round {} - {} - {}'.format(spacer, self._round_number, self._round_name, self._region_name.capitalize()) )
-        # else:
-        #     vis_lines.append( '{}Round {} - {}'.format(spacer, self._round_number,self._round_name) )
-        for child in self._children:
-            vis_lines.extend( child.team_visualize( spacer = spacer + '  ' ) )
+        vis_lines.append( '{}{}'.format(spacer_len * '-', self._round_name) )
         if self._winning_team_index == None:
             for team in self._teams:
-                vis_lines.append( ' {}{}'.format(spacer, team.name) )
+                vis_lines.append( '{}{}'.format(spacer_len * ' ', team.name) )
         else:
-            vis_lines.append( ' {}{} def. {}'.format(spacer, self._teams[self._winning_team_index].name, self._teams[1-self._winning_team_index].name) )
+            vis_lines.append( '{}{} ({}) def. {} ({})'.format(spacer_len * ' ', self._teams[self._winning_team_index].name, int(self._teams[self._winning_team_index].elo), self._teams[1-self._winning_team_index].name, int(self._teams[1-self._winning_team_index].elo)) )
+        for child in self._children:
+            vis_lines.extend( child.team_visualize( spacer_len = spacer_len + 2 ) )
+
         return vis_lines
 
     def add_team(self, team):
@@ -284,6 +289,11 @@ class BracketTree(object):
 
         return finals
 
+    def random_perturb(self, pop_size):
+        nodes = random.sample( self.all_nodes(), pop_size )
+        for node in nodes:
+            node.swap_winner()
+
     def single_random_perturb(self):
         node = random.choice( self.all_nodes() )
         node.swap_winner()
@@ -297,7 +307,6 @@ class BracketTree(object):
     def swap_winner(self):
         if self._parent != None:
             self._parent.remove_team_upwards( self._teams[self._winning_team_index], self._teams[ 1 - self._winning_team_index] )
-        print ('\nswap', self._region_name, self._round_number, self._round_name, self._teams )
         self._winning_team_index = 1 - self._winning_team_index
 
     def remove_team_upwards(self, old_winner, new_winner):
@@ -469,25 +478,79 @@ def run_stats( number_simulations = 10000 ):
         print ( line )
     print ( 'Total trials: %d' % v_callback.trials )
 
-def run_monte_carlo( num_trials = 10000 ):
-    max_perturbations = 4
-
-    blank_bt = BracketTree.init_starting_bracket()
-    # Initial simulation
-    bt = blank_bt.copy()
-    bt.simulate_fill()
-
-    mc = MonteCarloBracketSimulator( bt )
-    for trial in range(num_trials):
-        # Perturb
-        for x in range( random.randint(1, max_perturbations) ):
-            bt.single_random_perturb()
-        print ( '\n'.join( bt.team_visualize() ) )
-
-        # Score
+def run_monte_carlo_helper(temp_steps, max_perturbations, mc, blank_bt):
+    # chance of fresh bracket start
+    if random.random() >= 0.95:
         bt = blank_bt.copy()
         bt.simulate_fill()
+        mc.set_last_bt( bt )
+
+    for temperature in temp_steps:
+        bt = mc.last_bt.copy()
+        # Perturb
+        bt.random_perturb( random.randint(1, max_perturbations) )
+        # bt.single_random_perturb()
+
+        # Score
+        mc.temperature = temperature
         mc.boltzmann( bt )
+    return mc
+
+def run_monte_carlo( num_trials = 10000 ):
+    max_perturbations = 10
+    starting_temp = 15.0
+    ending_temp = 1.0
+    low_temp_final_steps = 500
+    highest_mc_bt_cache = os.path.join('cache', 'highest_mc_bt.pickle')
+    highest_vis_output = os.path.join('cache', 'highest_bracket.txt')
+
+    blank_bt = BracketTree.init_starting_bracket()
+    if os.path.isfile( highest_mc_bt_cache ):
+        with open(highest_mc_bt_cache, 'rb') as f:
+            bt = pickle.load(f)
+    else:
+        if not os.path.isdir( os.path.dirname( highest_mc_bt_cache ) ):
+            os.makedirs( os.path.dirname( highest_mc_bt_cache ) )
+        # Initial simulation
+        bt = blank_bt.copy()
+        bt.simulate_fill()
+
+    mc = MonteCarloBracketSimulator( bt )
+
+    temp_steps = list( np.arange(starting_temp, ending_temp, -0.005) )
+    temp_steps.extend( [ending_temp for x in range(low_temp_final_steps) ] )
+
+    def callback(thread_mc):
+        nonlocal mc
+        if thread_mc.highest_score > mc.highest_score:
+            mc = thread_mc
+
+    for trial in range(num_trials):
+        if use_multiprocessing:
+            pool = multiprocessing.Pool()
+            cpu_count = multiprocessing.cpu_count()
+        else:
+            cpu_count = 1
+        for cpu_count in range(cpu_count):
+            if use_multiprocessing:
+                pool.apply_async( run_monte_carlo_helper, args = (temp_steps, max_perturbations, mc.copy(), blank_bt), callback = callback )
+            else:
+                callback( run_monte_carlo_helper( temp_steps, max_perturbations, mc.copy(), blank_bt ) )
+
+        if use_multiprocessing:
+            pool.close()
+            pool.join()
+
+        print ( 'MC simulation complete (round {})'.format(trial) )
+        print ( 'Highest score: %.2f' % mc.highest_score )
+        print ( 'Last score: %.2f\n' % mc.last_score )
+
+    with open(highest_mc_bt_cache, 'wb') as f:
+        pickle.dump(mc.highest_bt, f)
+
+    with open(highest_vis_output, 'w') as f:
+        for line in mc.highest_bt.team_visualize():
+            f.write( line + '\n' )
 
 def predictor():
     # Setup argument parser
@@ -505,8 +568,8 @@ def predictor():
                         help = "Run many times to get statistics")
     parser.add_argument('-m', '--monte_carlo',
                         type = int,
-                        default = 0,
-                        help = "How many trials per monte carlow simulation")
+                        default = 10,
+                        help = "How many outer loops of ramping monte carlo simulation")
 
     args = parser.parse_args()
 
