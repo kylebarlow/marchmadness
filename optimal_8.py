@@ -54,12 +54,21 @@ def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
     for team_name in payouts:
         payouts[team_name] = np.array(payouts[team_name])
 
+    # go through all combinations of teams that have a reasonable chance of
+    # winning
+    average_payouts = {}
+    for team in payouts.keys():
+        average_payouts[team] = np.mean(payouts[team])
+    labelled = [(payout, team) for team, payout in average_payouts.items()]
+    labelled.sort(reverse=True)
+    contender_teams = [team for _, team in labelled[:40]]
+
     # go through all combinations of teams to identify the set of teams that is
     # the most likely to exceed a pre-defined threshold (for example, the score
     # of last year's winner)
     max_teams, max_total_payouts, max_p = None, None, 0
-    iter_teams = itertools.combinations(payouts.keys(), n_teams)
-    n_combinations = scipy.misc.comb(len(payouts.keys()), n_teams)
+    iter_teams = itertools.combinations(contender_teams, n_teams)
+    n_combinations = scipy.misc.comb(len(contender_teams), n_teams)
     print("finding best combination of %d teams..." % n_teams)
     iter_teams = tqdm(iter_teams, total=n_combinations)
     for teams in iter_teams:
