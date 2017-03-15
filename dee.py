@@ -555,13 +555,6 @@ def run_monte_carlo( num_trials = 10000 ):
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
-    # parser.add_argument('-o', '--output',
-    #                     default = default_output_file,
-    #                     help = "File to save output")
-    # parser.add_argument('-m', '--quiet',
-    #                     action = 'store_true',
-    #                     default = False,
-    #                     help = "Doesn't print bracket output to terminal")
     parser.add_argument('-s', '--stats',
                         type = int,
                         default = 0,
