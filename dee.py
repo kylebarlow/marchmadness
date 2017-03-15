@@ -81,8 +81,36 @@ seed_pairs_by_round = {
 }
 
 class MonteCarloBracketSimulator(object):
-    def __init__(self):
-        pass
+    def __init__(self, starting_bt):
+        self.highest_bt = starting_bt.copy()
+        self.last_bt = starting_bt.copy()
+        self.highest_score = starting_bt.cbs_score()
+        self.last_score = self.highest_score
+        self.temperature = 100.0
+
+    def boltzmann(self, bt):
+        bt_score = bt.cbs_score()
+        score_delta = self.last_score - bt_score
+        boltz_factor = ( -1 * score_delta / self.temperature )
+        probability = np.exp( min(40.0, max(-40.0, boltz_factor) ) )
+
+        if probability < 1:
+            if random.random() > probability:
+                # print ( 'reject', probability, self.last_score, bt_score )
+                return False # reject
+        #     else:
+        #         print ( 'MC accept', probability, self.last_score, bt_score )
+        # else:
+        #     print ( 'accept', probability, self.last_score, bt_score )
+
+        # Accept
+        self.last_bt = bt.copy()
+        self.last_score = bt_score
+        if self.highest_score == None or self.last_score > self.highest_score:
+            self.highest_score = self.last_score
+            self.highest_bt = bt.copy()
+
+        return True
 
 class Team(object):
     def __init__(self, name, region, seed, elo):
@@ -112,16 +140,23 @@ class Team(object):
     def __repr__(self):
         return self.name
 
-    # def __lt__(self, other):
-    #      return self.seed < other.seed
+    def __eq__(self, other):
+        # Only check equality based on names
+        return self.name == other.name
+
+    def __lt__(self, other):
+         return self.elo < other.elo
 
     def update_elo(self, number_wins, win_prob):
         self.elo = self.elo + elo_k_factor * (number_wins - win_prob)
 
+    def probability_of_victory(self, other):
+        return 1.0 / (1.0 + 10.0 ** ((other.elo - self.elo) / 400.0) )
+
     def random_match(self, other):
         # Returns true if we randomly beat other team, false if not
         # Also updates ELOs
-        win_prob = 1.0 / (1.0 + 10.0 ** ((other.elo - self.elo) / 400.0) )
+        win_prob = self.probability_of_victory(other)
         number_wins = 0
         if random.random() < win_prob:
             number_wins += 1
@@ -144,6 +179,10 @@ class BracketTree(object):
 
         self._teams = []
         self._winning_team_index = None
+
+    def copy(self):
+        # Return fast copy by pickling
+        return pickle.loads( pickle.dumps(self) )
 
     def team_visualize(self, spacer = ''):
         vis_lines = []
@@ -245,9 +284,40 @@ class BracketTree(object):
 
         return finals
 
+    def single_random_perturb(self):
+        node = random.choice( self.all_nodes() )
+        node.swap_winner()
+
+    def all_nodes(self):
+        nodes = [ self ]
+        for child in self._children:
+            nodes.extend( child.all_nodes() )
+        return nodes
+
+    def swap_winner(self):
+        if self._parent != None:
+            self._parent.remove_team_upwards( self._teams[self._winning_team_index], self._teams[ 1 - self._winning_team_index] )
+        print ('\nswap', self._region_name, self._round_number, self._round_name, self._teams )
+        self._winning_team_index = 1 - self._winning_team_index
+
+    def remove_team_upwards(self, old_winner, new_winner):
+        our_old_winner = self._teams[self._winning_team_index]
+
+        self._teams.remove( old_winner )
+        self._teams.append( new_winner )
+        assert( len(self._teams) == 2 )
+
+        if self._teams[0].random_match( self._teams[1] ):
+            self._winning_team_index = 0
+        else:
+            self._winning_team_index = 1
+
+        if self._parent != None and our_old_winner != self._teams[self._winning_team_index]:
+            self._parent.remove_team_upwards( our_old_winner, self._teams[self._winning_team_index] )
+
     def simulate_fill(self):
         # Randomly fills in bracket based on ELO simulation
-        # Must be run on blank bracket
+        # Fills in blanks
         assert( self._winning_team_index == None )
         for child in self._children:
             child.simulate_fill()
@@ -295,6 +365,40 @@ class BracketTree(object):
         for child in self._children:
             child.winners_dict( furthest_round )
         return furthest_round
+
+    def cbs_score(self):
+        '''
+        Score bracket according to default CBS scoring scheme
+        '''
+        #  This dictionary is used to calculate the expected score of a bracket in leagues where
+        #  additional points are awarded for correct picks in later rounds. Each key corresponds
+        #  to the number of a round (see round_dictionary) above, and each value corresponds to
+        #  the weight for each correct pick in that round. For example, a key/value pair of
+        #  3:2 would mean that a correct pick in the third round is worth twice as much as the baseline
+
+        # The seed of winner is also added to score (to give more points for picking low seeds)
+        default_cbs_scores = {
+            0:0,
+            1:1,
+            2:2,
+            3:3,
+            4:4,
+            5:6,
+            6:8
+        }
+        score = 0.0
+        for child in self._children:
+            score += child.cbs_score()
+        # Only score rounds past first four
+        if self._round_number > 0:
+            assert( self._winning_team_index != None )
+            assert( len(self._teams) == 2 )
+            winning_team = self._teams[self._winning_team_index]
+            losing_team = self._teams[1-self._winning_team_index]
+            # Compute expected score based on probability of event
+            score += winning_team.probability_of_victory(losing_team) * ( winning_team.seed + default_cbs_scores[self._round_number] )
+
+        return score
 
 def simulate_winners_vector(bt_pickle):
     bt_copy = pickle.loads(bt_pickle)
@@ -365,25 +469,52 @@ def run_stats( number_simulations = 10000 ):
         print ( line )
     print ( 'Total trials: %d' % v_callback.trials )
 
+def run_monte_carlo( num_trials = 10000 ):
+    max_perturbations = 4
+
+    blank_bt = BracketTree.init_starting_bracket()
+    # Initial simulation
+    bt = blank_bt.copy()
+    bt.simulate_fill()
+
+    mc = MonteCarloBracketSimulator( bt )
+    for trial in range(num_trials):
+        # Perturb
+        for x in range( random.randint(1, max_perturbations) ):
+            bt.single_random_perturb()
+        print ( '\n'.join( bt.team_visualize() ) )
+
+        # Score
+        bt = blank_bt.copy()
+        bt.simulate_fill()
+        mc.boltzmann( bt )
+
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
-    parser.add_argument('-o', '--output',
-                        default = default_output_file,
-                        help = "File to save output")
-    parser.add_argument('-q', '--quiet',
-                        action = 'store_true',
-                        default = False,
-                        help = "Doesn't print bracket output to terminal")
+    # parser.add_argument('-o', '--output',
+    #                     default = default_output_file,
+    #                     help = "File to save output")
+    # parser.add_argument('-m', '--quiet',
+    #                     action = 'store_true',
+    #                     default = False,
+    #                     help = "Doesn't print bracket output to terminal")
     parser.add_argument('-s', '--stats',
                         type = int,
                         default = 0,
                         help = "Run many times to get statistics")
+    parser.add_argument('-m', '--monte_carlo',
+                        type = int,
+                        default = 0,
+                        help = "How many trials per monte carlow simulation")
 
     args = parser.parse_args()
 
     if args.stats > 0:
         run_stats( args.stats )
+
+    if args.monte_carlo > 0:
+        run_monte_carlo( args.monte_carlo )
 
 if __name__ == "__main__":
     predictor()
