@@ -2,7 +2,7 @@
 # Requires Python 3
 
 """
-March Madness DEE/ELO prediction script
+March Madness prediction script
 Copyright (C) 2013-2017 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
@@ -210,7 +210,7 @@ class BracketTree(object):
         # Return fast copy by pickling
         return pickle.loads( pickle.dumps(self) )
 
-    def team_visualize(self, spacer_len = 0):
+    def visualize(self, spacer_len = 0):
         vis_lines = []
         vis_lines.append( '{}{}'.format(spacer_len * '-', self._round_name) )
         if self._winning_team_index == None:
@@ -219,7 +219,7 @@ class BracketTree(object):
         else:
             vis_lines.append( '{}{} ({}) def. {} ({})'.format(spacer_len * ' ', self._teams[self._winning_team_index].name, int(self._teams[self._winning_team_index].elo), self._teams[1-self._winning_team_index].name, int(self._teams[1-self._winning_team_index].elo)) )
         for child in self._children:
-            vis_lines.extend( child.team_visualize( spacer_len = spacer_len + 2 ) )
+            vis_lines.extend( child.visualize( spacer_len = spacer_len + 2 ) )
 
         return vis_lines
 
@@ -607,8 +607,13 @@ def run_monte_carlo( num_trials = 10000 ):
         pickle.dump(mc.highest_bt, f)
 
     with open(highest_vis_output, 'w') as f:
-        for line in mc.highest_bt.team_visualize():
+        for line in mc.highest_bt.visualize():
             f.write( line + '\n' )
+
+def run_quick_pick():
+    bt = BracketTree.init_starting_bracket()
+    bt.simulate_fill()
+    print ( '\n'.join( bt.visualize() ) )
 
 def predictor():
     # Setup argument parser
@@ -619,10 +624,17 @@ def predictor():
                         help = "Run many times to get statistics")
     parser.add_argument('-m', '--monte_carlo',
                         type = int,
-                        default = 10,
+                        default = 0,
                         help = "How many outer loops of ramping monte carlo simulation")
+    parser.add_argument('-q', '--quick_pick',
+                        default = True,
+                        action = 'store_true',
+                        help = 'Generate a "quick pick" style bracket')
 
     args = parser.parse_args()
+
+    if args.quick_pick:
+        run_quick_pick()
 
     if args.stats > 0:
         run_stats( args.stats )
