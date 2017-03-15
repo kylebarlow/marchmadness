@@ -19,16 +19,7 @@ from tqdm import tqdm
 from predict import BracketTree
 
 
-def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
-
-    # prepare output file
-    output_filename = os.path.join('cache', 'optimal_8.csv')
-    if not os.path.isdir( os.path.dirname( output_filename ) ):
-        os.makedirs( os.path.dirname( output_filename ) )
-    stream = open(output_filename, 'w')
-    writer = csv.writer(stream)
-    writer.writerow(['p_winning'] + ['team-%d' % i for i in range(1, 9)])
-
+def simulate_payouts(num_trials, bonuses=None):
     # default no bonus payout
     if bonuses is None:
         bonus_payout = dict.fromkeys(range(1, 7), 0)
@@ -64,6 +55,30 @@ def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
     for team_name in payouts:
         payouts[team_name] = np.array(payouts[team_name])
 
+    return payouts
+
+
+def calculate_probability(payouts, teams, target_payout, num_trials):
+    total_payouts = np.zeros(num_trials)
+    for team in teams:
+        total_payouts += payouts[team]
+    p = 100 - scipy.stats.percentileofscore(total_payouts, target_payout, kind='strict')
+    return p
+
+
+def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
+
+    # prepare output file
+    output_filename = os.path.join('cache', 'optimal_8.csv')
+    if not os.path.isdir( os.path.dirname( output_filename ) ):
+        os.makedirs( os.path.dirname( output_filename ) )
+    stream = open(output_filename, 'w')
+    writer = csv.writer(stream)
+    writer.writerow(['p_winning'] + ['team-%d' % i for i in range(1, 9)])
+
+    # calculate the payouts
+    payouts = simulate_payouts(num_trials, bonuses=bonuses)
+
     # go through all combinations of teams that have a reasonable chance of
     # winning
     average_payouts = {}
@@ -82,10 +97,7 @@ def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
     print("finding best combination of %d teams..." % n_teams)
     iter_teams = tqdm(iter_teams, total=n_combinations)
     for teams in iter_teams:
-        total_payouts = np.zeros(num_trials)
-        for team in teams:
-            total_payouts += payouts[team]
-        p = 100 - scipy.stats.percentileofscore(total_payouts, target_payout, kind='strict')
+        p = calculate_probability(payouts, teams, target_payout, num_trials)
         if p > max_p:
             max_p = p
             max_teams = teams
@@ -95,6 +107,13 @@ def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
     stream.close()
 
     return max_p, max_teams, max_total_payouts
+
+
+def print_probability(p, teams):
+    print("The following teams have a %.1f%% chance of winning:" % p)
+    for team in teams:
+        print("    %s" % team)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
@@ -110,16 +129,27 @@ if __name__ == '__main__':
     parser.add_argument('target_score',
                         type = int,
                         help = "Target score you want to beat (like last year's winning score)")
+    parser.add_argument('-p', '--probability',
+                        type = str,
+                        nargs = 8,
+                        default = None,
+                        metavar = "TEAM",
+                        help = "Calculate probability of a given set of teams")
 
     args = parser.parse_args()
 
-    if args.monte_carlo > 0:
+    # in --probability mode, just check the probability of the specified set of
+    # teams. convenient for trying alternate picks
+    if args.probability:
+        payouts = simulate_payouts(args.monte_carlo, args.bonus)
+        p = calculate_probability(payouts, args.probability, args.target_score, args.monte_carlo)
+        print_probability(p, args.probability)
+
+
+    elif args.monte_carlo > 0:
         max_p, max_teams, max_total_payouts = optimize(
             args.monte_carlo,
             args.target_score,
             args.bonus,
         )
-
-        print("The following teams have a %.1f%% chance of winning:" % max_p)
-        for team in max_teams:
-            print("    %s" % team)
+        print_probability(max_p, max_teams)
