@@ -17,7 +17,7 @@ Scoring for the CBS Sports bracket game I am personally in is implemented, but t
 
 ## Features
 Run ./predict.py -h for a list of help options
-* Generate a "quick-pick" bracket (no flag needed; default mode)
+* Generate a "quick-pick" bracket
 `./predict.py -q`
 * Run many simulations to look at summary statistics (useful for comparison with other probabilities to see how well the model is calibrated)
 `./predict.py -s`

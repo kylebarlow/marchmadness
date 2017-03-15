@@ -627,7 +627,7 @@ def predictor():
                         default = 0,
                         help = "How many outer loops of ramping monte carlo simulation")
     parser.add_argument('-q', '--quick_pick',
-                        default = True,
+                        default = False,
                         action = 'store_true',
                         help = 'Generate a "quick pick" style bracket')
 
