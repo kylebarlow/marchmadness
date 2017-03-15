@@ -2,7 +2,7 @@
 # Requires Python 3
 
 """
-March Madness DEE/ELO prediction script
+March Madness prediction script
 Copyright (C) 2013-2017 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
@@ -41,7 +41,7 @@ default_data_file = 'elo.tsv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
 
-elo_k_factor = 26 # How fast ELO changes
+elo_k_factor = 15 # How fast ELO changes
 
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
@@ -127,6 +127,9 @@ class Team(object):
         self.starting_elo = elo
         self.elo = elo
 
+        # Keeps track of past ELO changes so we can undo them
+        self.elo_history = {}
+
     @classmethod
     def init_from_line(cls, team_line, separator_character = '\t'):
         line_data = team_line.split(separator_character)
@@ -154,21 +157,37 @@ class Team(object):
     def __lt__(self, other):
          return self.elo < other.elo
 
-    def update_elo(self, number_wins, win_prob):
-        self.elo = self.elo + elo_k_factor * (number_wins - win_prob)
+    def update_elo(self, number_wins, win_prob, round_number):
+        elo_change = elo_k_factor * (number_wins - win_prob)
+        self.elo += elo_change
+        assert( round_number not in self.elo_history ) # We can only have played one match per round
+        self.elo_history[round_number] = elo_change
+
+    def undo_elo_update(self, starting_round_number):
+        '''
+        Undo changes to ELO in self for specific round, and all rounds greater than that round
+        '''
+        for round_number in range(starting_round_number, max( round_dictionary.keys() ) + 1 ):
+            if round_number in self.elo_history:
+                # Later round numbers may not be in history if team lost earlier, so we use this if to check
+                self.elo -= self.elo_history[round_number]
+                del self.elo_history[round_number]
 
     def probability_of_victory(self, other):
         return 1.0 / (1.0 + 10.0 ** ((other.elo - self.elo) / 400.0) )
 
-    def random_match(self, other):
-        # Returns true if we randomly beat other team, false if not
-        # Also updates ELOs
+    def play_match(self, other, round_number, rigged = False):
+        '''
+        Returns true if we beat other team, otherwise false
+        Will randomly pick winner based on ELO, unless is rigged (in which case self wins)
+        Updates ELOs
+        '''
         win_prob = self.probability_of_victory(other)
         number_wins = 0
-        if random.random() < win_prob:
+        if rigged or random.random() < win_prob:
             number_wins += 1
-        self.update_elo( number_wins, win_prob )
-        other.update_elo( 1 - number_wins, 1.0 - win_prob )
+        self.update_elo( number_wins, win_prob, round_number )
+        other.update_elo( 1 - number_wins, 1.0 - win_prob, round_number )
 
         if number_wins == 1:
             return True
@@ -191,7 +210,7 @@ class BracketTree(object):
         # Return fast copy by pickling
         return pickle.loads( pickle.dumps(self) )
 
-    def team_visualize(self, spacer_len = 0):
+    def visualize(self, spacer_len = 0):
         vis_lines = []
         vis_lines.append( '{}{}'.format(spacer_len * '-', self._round_name) )
         if self._winning_team_index == None:
@@ -200,7 +219,7 @@ class BracketTree(object):
         else:
             vis_lines.append( '{}{} ({}) def. {} ({})'.format(spacer_len * ' ', self._teams[self._winning_team_index].name, int(self._teams[self._winning_team_index].elo), self._teams[1-self._winning_team_index].name, int(self._teams[1-self._winning_team_index].elo)) )
         for child in self._children:
-            vis_lines.extend( child.team_visualize( spacer_len = spacer_len + 2 ) )
+            vis_lines.extend( child.visualize( spacer_len = spacer_len + 2 ) )
 
         return vis_lines
 
@@ -211,7 +230,7 @@ class BracketTree(object):
         assert( child._round_number + 1 == self._round_number )
         if self._region_name != None:
             assert( child._region_name == self._region_name )
-        child.set_parent = self
+        child.set_parent( self )
         self._children.append(child)
 
     def set_parent(self, parent):
@@ -293,6 +312,8 @@ class BracketTree(object):
         nodes = random.sample( self.all_nodes(), pop_size )
         for node in nodes:
             node.swap_winner()
+        # Run final verification after all swaps are complete
+        self.verify_bracket()
 
     def single_random_perturb(self):
         node = random.choice( self.all_nodes() )
@@ -305,24 +326,59 @@ class BracketTree(object):
         return nodes
 
     def swap_winner(self):
+        for team in self._teams:
+            team.undo_elo_update(self._round_number)
+
+        assert( len(self._teams) == 2 )
         if self._parent != None:
             self._parent.remove_team_upwards( self._teams[self._winning_team_index], self._teams[ 1 - self._winning_team_index] )
+
         self._winning_team_index = 1 - self._winning_team_index
 
+        # Update ELOs according to swapped result
+        self._teams[self._winning_team_index].play_match( self._teams[ 1 - self._winning_team_index], self._round_number, rigged = True )
+
     def remove_team_upwards(self, old_winner, new_winner):
+        '''
+        Removes a team that previously won in a child game
+        Resimulates new winner in new random match
+        '''
         our_old_winner = self._teams[self._winning_team_index]
 
         self._teams.remove( old_winner )
         self._teams.append( new_winner )
         assert( len(self._teams) == 2 )
 
-        if self._teams[0].random_match( self._teams[1] ):
+        # Undo ELO updates before new match
+        for team in self._teams:
+            team.undo_elo_update(self._round_number)
+
+        # Play match
+        if self._teams[0].play_match( self._teams[1], self._round_number ):
             self._winning_team_index = 0
         else:
             self._winning_team_index = 1
 
-        if self._parent != None and our_old_winner != self._teams[self._winning_team_index]:
+        # Recursive call upwards
+        if self._parent != None:
             self._parent.remove_team_upwards( our_old_winner, self._teams[self._winning_team_index] )
+
+    def verify_bracket(self):
+        '''
+        Ensures that a bracket is valid and filled
+        Checks that if a team won a lower round, is present in the upper round
+        '''
+        assert( self._winning_team_index != None )
+        assert( len(self._teams) == 2 )
+        prev_round_winners = sorted( self._teams )
+        children_winners = sorted( [ child._teams[child._winning_team_index] for child in self._children ] )
+        if len( self._children ) == 2:
+            assert( prev_round_winners == children_winners )
+        elif len( self._children ) == 1:
+            assert( children_winners[0] in prev_round_winners )
+
+        for child in self._children:
+            child.verify_bracket()
 
     def simulate_fill(self):
         # Randomly fills in bracket based on ELO simulation
@@ -333,7 +389,7 @@ class BracketTree(object):
             self._teams.append( child._teams[child._winning_team_index] )
 
         assert( len( self._teams ) == 2 )
-        if self._teams[0].random_match( self._teams[1] ):
+        if self._teams[0].play_match( self._teams[1], self._round_number ):
             self._winning_team_index = 0
         else:
             self._winning_team_index = 1
@@ -505,11 +561,13 @@ def run_monte_carlo_helper(temp_steps, max_perturbations, mc, blank_bt):
     return mc
 
 def run_monte_carlo( num_trials = 10000 ):
+    # Parameters for MC simulation
     max_perturbations = 10
-    starting_temp = 15.0
+    starting_temp = 20.0
     ending_temp = 1.0
     low_temp_final_steps = 500
-    highest_mc_bt_cache = os.path.join('cache', 'highest_mc_bt.pickle')
+    # Output parameters
+    highest_mc_bt_cache = os.path.join('cache', 'highest_mc_bt.pickle') # Saves best bracket for reloading as starting point in later simulations
     highest_vis_output = os.path.join('cache', 'highest_bracket.txt')
 
     blank_bt = BracketTree.init_starting_bracket()
@@ -557,8 +615,13 @@ def run_monte_carlo( num_trials = 10000 ):
         pickle.dump(mc.highest_bt, f)
 
     with open(highest_vis_output, 'w') as f:
-        for line in mc.highest_bt.team_visualize():
+        for line in mc.highest_bt.visualize():
             f.write( line + '\n' )
+
+def run_quick_pick():
+    bt = BracketTree.init_starting_bracket()
+    bt.simulate_fill()
+    print ( '\n'.join( bt.visualize() ) )
 
 def predictor():
     # Setup argument parser
@@ -569,10 +632,17 @@ def predictor():
                         help = "Run many times to get statistics")
     parser.add_argument('-m', '--monte_carlo',
                         type = int,
-                        default = 10,
+                        default = 0,
                         help = "How many outer loops of ramping monte carlo simulation")
+    parser.add_argument('-q', '--quick_pick',
+                        default = False,
+                        action = 'store_true',
+                        help = 'Generate a "quick pick" style bracket')
 
     args = parser.parse_args()
+
+    if args.quick_pick:
+        run_quick_pick()
 
     if args.stats > 0:
         run_stats( args.stats )
