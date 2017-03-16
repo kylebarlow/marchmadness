@@ -28,3 +28,4 @@ Run `./optimal_8.py -h` for a list of help options for Seed 8 Pools.
 * `./optimal_8.py 103` to run ELO simulations to choose the optimal set of 8 teams that will beat a particular score (`103` in this case). Results are output in `cache/optimal_8.csv`
 * `./optimal_8.py 103 -b 0 0 5 10 15 20` to run ELO simulations for a per-round bonus structure of 0 points in first two rounds, 5 points in sweet 16, 10 points in elite 8, 15 points for final four and 20 points for winning the championship.
 * `./optimal_8.py 103 -p 'Villanova' 'Wichita State' 'Southern Methodist' 'Arizona' 'Oregon' 'Kentucky' 'Duke' 'Michigan'` to run ELO simulations and see how likely a specific set of teams is to exceed the target score. This is convenient for making changes to the proposed best picks.
+* `./optimal_8.py 103 -s` to sample the output of the total score distribution from the ELO simulations to gauge what a reasonable target would be.
