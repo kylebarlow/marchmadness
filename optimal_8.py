@@ -11,6 +11,7 @@ import copy
 import itertools
 import os
 import csv
+import random
 
 import numpy as np
 import scipy.stats
@@ -66,6 +67,15 @@ def calculate_probability(payouts, teams, target_payout, num_trials):
     return p, total_payouts
 
 
+def limit_to_contender_teams(payouts, max_contender_teams=40):
+    labelled = []
+    for team in payouts.keys():
+        labelled.append((np.mean(payouts[team]), team))
+    labelled.sort(reverse=True)
+    contender_teams = [team for _, team in labelled[:max_contender_teams]]
+    return contender_teams
+
+
 def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
 
     # prepare output file
@@ -81,12 +91,7 @@ def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
 
     # go through all combinations of teams that have a reasonable chance of
     # winning
-    average_payouts = {}
-    for team in payouts.keys():
-        average_payouts[team] = np.mean(payouts[team])
-    labelled = [(payout, team) for team, payout in average_payouts.items()]
-    labelled.sort(reverse=True)
-    contender_teams = [team for _, team in labelled[:40]]
+    contender_teams = limit_to_contender_teams(payouts)
 
     # go through all combinations of teams to identify the set of teams that is
     # the most likely to exceed a pre-defined threshold (for example, the score
@@ -115,6 +120,17 @@ def print_probability(p, teams):
         print("    %s" % team)
 
 
+def sample_total_points(payouts, n_samples, num_trials, n_teams=8):
+
+    contender_teams = limit_to_contender_teams(payouts)
+
+    total_points = []
+    for i in range(n_samples):
+        teams = random.sample(contender_teams, n_teams)
+        _, outcomes = calculate_probability(payouts, teams, 0, num_trials)
+        total_points.append(random.choice(outcomes))
+    return total_points
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('-m', '--monte_carlo',
@@ -135,6 +151,10 @@ if __name__ == '__main__':
                         default = None,
                         metavar = "TEAM",
                         help = "Calculate probability of a given set of teams")
+    parser.add_argument('-s', '--sample',
+                        type = int,
+                        default = 0,
+                        help = "Sample candidate combinations of teams to better understand a good target")
 
     args = parser.parse_args()
 
@@ -145,6 +165,12 @@ if __name__ == '__main__':
         p = calculate_probability(payouts, args.probability, args.target_score, args.monte_carlo)
         print_probability(p, args.probability)
 
+    elif args.sample > 0:
+        payouts = simulate_payouts(args.monte_carlo, args.bonus)
+        total_scores = sample_total_points(payouts, args.sample, args.monte_carlo)
+        total_scores.sort()
+        for i, score in enumerate(total_scores):
+            print(score, 1.0 - float(i) / args.sample)
 
     elif args.monte_carlo > 0:
         max_p, max_teams, max_total_payouts = optimize(
