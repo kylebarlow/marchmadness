@@ -120,6 +120,12 @@ def print_probability(p, teams):
         print("    %s" % team)
 
 
+def print_cdf(total_scores):
+    total_scores.sort()
+    for i, score in enumerate(total_scores):
+        print(score, 1.0 - float(i) / len(total_scores))
+
+
 def sample_total_points(payouts, n_samples, num_trials, n_teams=8):
 
     contender_teams = limit_to_contender_teams(payouts)
@@ -155,6 +161,12 @@ if __name__ == '__main__':
                         type = int,
                         default = 0,
                         help = "Sample candidate combinations of teams to better understand a good target")
+    parser.add_argument('-d', '--distribution',
+                        type = str,
+                        nargs = 8,
+                        default = None,
+                        metavar = "TEAM",
+                        help = "Print out distribution of outcomes for a given set of teams")
 
     args = parser.parse_args()
 
@@ -162,15 +174,18 @@ if __name__ == '__main__':
     # teams. convenient for trying alternate picks
     if args.probability:
         payouts = simulate_payouts(args.monte_carlo, args.bonus)
-        p = calculate_probability(payouts, args.probability, args.target_score, args.monte_carlo)
+        p, _ = calculate_probability(payouts, args.probability, args.target_score, args.monte_carlo)
         print_probability(p, args.probability)
+
+    elif args.distribution:
+        payouts = simulate_payouts(args.monte_carlo, args.bonus)
+        _, total_outcomes = calculate_probability(payouts, args.distribution, args.target_score, args.monte_carlo)
+        print_cdf(total_outcomes)
 
     elif args.sample > 0:
         payouts = simulate_payouts(args.monte_carlo, args.bonus)
         total_scores = sample_total_points(payouts, args.sample, args.monte_carlo)
-        total_scores.sort()
-        for i, score in enumerate(total_scores):
-            print(score, 1.0 - float(i) / args.sample)
+        print_cdf(total_scores)
 
     elif args.monte_carlo > 0:
         max_p, max_teams, max_total_payouts = optimize(
