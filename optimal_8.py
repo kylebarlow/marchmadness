@@ -63,7 +63,7 @@ def calculate_probability(payouts, teams, target_payout, num_trials):
     for team in teams:
         total_payouts += payouts[team]
     p = 100 - scipy.stats.percentileofscore(total_payouts, target_payout, kind='strict')
-    return p
+    return p, total_payouts
 
 
 def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
@@ -97,7 +97,7 @@ def optimize(num_trials, target_payout, bonuses=None, n_teams=8):
     print("finding best combination of %d teams..." % n_teams)
     iter_teams = tqdm(iter_teams, total=n_combinations)
     for teams in iter_teams:
-        p = calculate_probability(payouts, teams, target_payout, num_trials)
+        p, total_payouts = calculate_probability(payouts, teams, target_payout, num_trials)
         if p > max_p:
             max_p = p
             max_teams = teams
