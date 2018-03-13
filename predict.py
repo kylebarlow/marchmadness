@@ -468,7 +468,11 @@ class BracketTree(object):
             winning_team = self._teams[self._winning_team_index]
             losing_team = self._teams[1-self._winning_team_index]
             # Compute expected score based on probability of event
-            score += winning_team.probability_of_victory(losing_team) * ( winning_team.seed + default_cbs_scores[self._round_number] )
+            probability_of_victory = winning_team.probability_of_victory(losing_team)
+            # Threshold low probability events to have no value
+            if probability_of_victory < 0.001:
+                probability_of_victory = 0
+            score += probability_of_victory * ( winning_team.seed + default_cbs_scores[self._round_number] )
 
         return score
 
