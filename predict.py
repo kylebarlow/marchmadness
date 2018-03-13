@@ -178,16 +178,19 @@ class Team(object):
     def probability_of_victory(self, other):
         return 1.0 / (1.0 + 10.0 ** ((other.elo - self.elo) / 400.0) )
 
-    def play_match(self, other, round_number, rigged = False):
+    def play_match(self, other, round_number, rigged = False, threshold_win_prob = 0.1):
         '''
         Returns true if we beat other team, otherwise false
         Will randomly pick winner based on ELO, unless is rigged (in which case self wins)
         Updates ELOs
+        If threshold_win_prob is not None, then team must have at least that chance of winning to win
         '''
         win_prob = self.probability_of_victory(other)
         number_wins = 0
-        if rigged or random.random() < win_prob:
-            number_wins += 1
+        if rigged or (threshold_win_prob == None or win_prob >= threshold_win_prob):
+            if rigged or random.random() < win_prob:
+                number_wins += 1
+
         self.update_elo( number_wins, win_prob, round_number )
         other.update_elo( 1 - number_wins, 1.0 - win_prob, round_number )
 
@@ -470,7 +473,7 @@ class BracketTree(object):
             # Compute expected score based on probability of event
             probability_of_victory = winning_team.probability_of_victory(losing_team)
             # Threshold low probability events to have no value
-            if probability_of_victory < 0.001:
+            if probability_of_victory < 0.01:
                 probability_of_victory = 0
             score += probability_of_victory * ( winning_team.seed + default_cbs_scores[self._round_number] )
 
