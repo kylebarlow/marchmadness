@@ -3,7 +3,7 @@
 
 """
 March Madness prediction script
-Copyright (C) 2013-2017 Kyle Barlow
+Copyright (C) 2013-2018 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@ import multiprocessing
 import queue
 import pickle
 import threading
+import urllib.request
 
 # NumPy
 import numpy as np
@@ -37,7 +38,8 @@ import numpy as np
 use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
-default_data_file = 'elo.tsv' # Caches url results
+source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2018/fivethirtyeight_ncaa_forecasts.csv'
+default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
 
@@ -131,14 +133,14 @@ class Team(object):
         self.elo_history = {}
 
     @classmethod
-    def init_from_line(cls, team_line, separator_character = '\t'):
+    def init_from_line(cls, team_line, separator_character = ','):
         line_data = team_line.split(separator_character)
-        assert( len(line_data) >= 4 )
-        name = line_data[0]
-        region = line_data[1]
+        assert( len(line_data) == 16 )
+        name = line_data[-4]
+        region = line_data[-2]
         try:
-            seed = int(line_data[2])
-            elo = float(line_data[3])
+            seed = int(line_data[-1])
+            elo = float(line_data[-3]) * 21.97 # 21.97 is the average conversion multipler from composite rating to ELO last year
         except ValueError:
             print ('Error parsing this line:')
             print (team_line)
@@ -276,11 +278,16 @@ class BracketTree(object):
         teams = {}
         min_seed = None
         max_seed = None
+
+        if not os.path.isfile(default_data_file):
+            urllib.request.urlretrieve(source_url, default_data_file)
+
         with open(default_data_file, 'r') as f:
             lines = f.readlines()
 
-            # Read in team data
-            for line in lines[1:]:
+        # Read in team data
+        for line in lines[1:]:
+            if line.startswith('mens'):
                 team = Team.init_from_line(line)
                 if min_seed == None or team.seed < min_seed:
                     min_seed = team.seed
