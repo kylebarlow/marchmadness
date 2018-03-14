@@ -21,6 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 # Python standard library import statements
 import argparse
+import time
 import os
 import sys
 import random
@@ -178,7 +179,7 @@ class Team(object):
     def probability_of_victory(self, other):
         return 1.0 / (1.0 + 10.0 ** ((other.elo - self.elo) / 400.0) )
 
-    def play_match(self, other, round_number, rigged = False, threshold_win_prob = 0.1):
+    def play_match(self, other, round_number, rigged = False, threshold_win_prob = 0.33):
         '''
         Returns true if we beat other team, otherwise false
         Will randomly pick winner based on ELO, unless is rigged (in which case self wins)
@@ -187,9 +188,15 @@ class Team(object):
         '''
         win_prob = self.probability_of_victory(other)
         number_wins = 0
-        if rigged or (threshold_win_prob == None or win_prob >= threshold_win_prob):
-            if rigged or random.random() < win_prob:
+        if rigged:
+            number_wins += 1
+        elif threshold_win_prob != None and 1.0 - win_prob < threshold_win_prob:
+            number_wins += 1
+        elif random.random() < win_prob:
                 number_wins += 1
+
+        if (self.name == 'Virginia' and other.name == 'Maryland-Baltimore County' and number_wins == 0) or (self.name == 'Maryland-Baltimore County' and other.name == 'Virginia' and number_wins == 1):
+            print( round_number, self.name, int(self.elo), other.name, int(other.elo), number_wins, '%.2f' % win_prob )
 
         self.update_elo( number_wins, win_prob, round_number )
         other.update_elo( 1 - number_wins, 1.0 - win_prob, round_number )
@@ -335,11 +342,17 @@ class BracketTree(object):
             nodes.extend( child.all_nodes() )
         return nodes
 
-    def swap_winner(self):
+    def swap_winner(self, threshold_win_prob = 0.33):
+        assert( len(self._teams) == 2 )
+        current_winner = self._teams[ self._winning_team_index ]
+        current_loser = self._teams[ 1 - self._winning_team_index ]
+        loser_win_prob = current_loser.probability_of_victory(current_winner)
+        if threshold_win_prob != None and loser_win_prob < threshold_win_prob:
+            return
+
         for team in self._teams:
             team.undo_elo_update(self._round_number)
 
-        assert( len(self._teams) == 2 )
         if self._parent != None:
             self._parent.remove_team_upwards( self._teams[self._winning_team_index], self._teams[ 1 - self._winning_team_index] )
 
