@@ -39,7 +39,7 @@ import numpy as np
 use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
-source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2018/fivethirtyeight_ncaa_forecasts.csv'
+source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2019/fivethirtyeight_ncaa_forecasts.csv'
 default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
@@ -87,16 +87,16 @@ class MonteCarloBracketSimulator(object):
     def __init__(self, starting_bt):
         self.highest_bt = starting_bt.copy()
         self.last_bt = starting_bt.copy()
-        self.highest_score = starting_bt.cbs_score()
+        self.highest_score = starting_bt.yahoo_score()
         self.last_score = self.highest_score
         self.temperature = 100.0
 
     def set_last_bt(self, bt):
         self.last_bt = bt.copy()
-        self.last_score = bt.cbs_score()
+        self.last_score = bt.yahoo_score()
 
     def boltzmann(self, bt):
-        bt_score = bt.cbs_score()
+        bt_score = bt.yahoo_score()
         score_delta = self.last_score - bt_score
         boltz_factor = ( -1 * score_delta / self.temperature )
         probability = np.exp( min(40.0, max(-40.0, boltz_factor) ) )
@@ -136,12 +136,15 @@ class Team(object):
     @classmethod
     def init_from_line(cls, team_line, separator_character = ','):
         line_data = team_line.split(separator_character)
-        assert( len(line_data) == 16 )
-        name = line_data[-4]
-        region = line_data[-2]
+        assert( len(line_data) == 18 )
+        name = line_data[-5]
+        region = line_data[-3]
         try:
-            seed = int(line_data[-1])
-            elo = float(line_data[-3]) * 21.97 # 21.97 is the average conversion multipler from composite rating to ELO last year
+            if line_data[-2].endswith('a') or line_data[-2].endswith('b'):
+                seed = int(line_data[-2][:-1])
+            else:
+                seed = int(line_data[-2])
+            elo = float(line_data[-4])
         except ValueError:
             print ('Error parsing this line:')
             print (team_line)
@@ -489,6 +492,34 @@ class BracketTree(object):
             if probability_of_victory < 0.05:
                 probability_of_victory = 0
             score += probability_of_victory * ( winning_team.seed + default_cbs_scores[self._round_number] )
+
+        return score
+
+    def yahoo_score(self):
+        default_yahoo_scores = {
+            0:0,
+            1:1,
+            2:2,
+            3:4,
+            4:8,
+            5:16,
+            6:32
+        }
+        score = 0.0
+        for child in self._children:
+            score += child.yahoo_score()
+        # Only score rounds past first four
+        if self._round_number > 0:
+            assert( self._winning_team_index != None )
+            assert( len(self._teams) == 2 )
+            winning_team = self._teams[self._winning_team_index]
+            losing_team = self._teams[1-self._winning_team_index]
+            # Compute expected score based on probability of event
+            probability_of_victory = winning_team.probability_of_victory(losing_team)
+            # Threshold low probability events to have no value
+            if probability_of_victory < 0.05:
+                probability_of_victory = 0
+            score += probability_of_victory * ( max( [0, winning_team.seed - losing_team.seed] ) + default_yahoo_scores[self._round_number] )
 
         return score
 
