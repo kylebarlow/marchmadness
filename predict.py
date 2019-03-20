@@ -461,21 +461,10 @@ class BracketTree(object):
         winning_team = self._teams[self._winning_team_index]
         losing_team = self._teams[1-self._winning_team_index]
 
-        return_prob = 2.0
-        if len(self._children) == 0:
-            return_prob = winning_team.probability_of_victory(losing_team)
-        elif len(self._children) == 2:
-            child_with_winner = None
-            if self._children[0]._teams[0].name == winning_team.name or self._children[0]._teams[1].name == winning_team.name:
-                child_with_winner = self._children[0]
-            if self._children[1]._teams[0].name == winning_team.name or self._children[1]._teams[1].name == winning_team.name:
-                assert( child_with_winner == None )
-                child_with_winner = self._children[1]
-
-            # return_prob = winning_team.probability_of_victory(losing_team) * child_with_winner.total_probability()
-            return_prob = winning_team.probability_of_victory(losing_team) * self._children[0].total_probability() * self._children[1].total_probability()
-        else:
-            raise Exception( 'number children: %d' % len(self._children) )
+        return_prob = winning_team.probability_of_victory(losing_team)
+        if len(self._children) == 2: # Skip first 4
+            for child in self._children:
+                return_prob = return_prob * child.total_probability()
 
         if return_prob > 1.0 or return_prob < 0.0:
             print( winning_team, losing_team, self._round_number, winning_team.probability_of_victory(losing_team), child_with_winner.total_probability(), self._children[0].total_probability(), self._children[1].total_probability(), winning_team.elo, losing_team.elo )
