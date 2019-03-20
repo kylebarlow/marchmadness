@@ -31,6 +31,7 @@ import queue
 import pickle
 import threading
 import urllib.request
+import itertools
 
 # NumPy
 import numpy as np
@@ -90,16 +91,16 @@ class MonteCarloBracketSimulator(object):
     def __init__(self, starting_bt):
         self.highest_bt = starting_bt.copy()
         self.last_bt = starting_bt.copy()
-        self.highest_score = starting_bt.score()
+        self.highest_score = starting_bt.expected_score()
         self.last_score = self.highest_score
         self.temperature = 100.0
 
     def set_last_bt(self, bt):
         self.last_bt = bt.copy()
-        self.last_score = bt.score()
+        self.last_score = bt.expected_score()
 
     def boltzmann(self, bt):
-        bt_score = bt.score()
+        bt_score = bt.expected_score()
         score_delta = self.last_score - bt_score
         boltz_factor = ( -1 * score_delta / self.temperature )
         probability = np.exp( min(40.0, max(-40.0, boltz_factor) ) )
@@ -535,6 +536,25 @@ class BracketTree(object):
         losing_team = self._teams[1-self._winning_team_index]
 
         score += max( [0, winning_team.seed - losing_team.seed] ) + default_yahoo_scores[self._round_number]
+
+        return score
+
+    def expected_score(self):
+        doppel = self.copy().swap_winner()
+
+
+
+        all_nodes = self.all_nodes()
+        score = self.score()
+        for i in range(1, len(all_nodes) + 1 ):
+            print( 'combo i', i, len(all_nodes) + 1 )
+            node_groups = itertools.combinations( all_nodes, i )
+            for nodes in node_groups:
+                for node in nodes:
+                    node.swap_winner()
+                score += self.score()
+                for node in nodes:
+                    node.swap_winner()
 
         return score
 
