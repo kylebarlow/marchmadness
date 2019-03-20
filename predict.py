@@ -231,16 +231,18 @@ class BracketTree(object):
         # Return fast copy by pickling
         return pickle.loads( pickle.dumps(self) )
 
-    def visualize(self, spacer_len = 0):
+    def visualize(self, spacer_len = 0, print_score = True):
         vis_lines = []
+        if print_score:
+            vis_lines.append( 'Expected score: %.2f' % self.expected_score() )
         vis_lines.append( '{}{}'.format(spacer_len * '-', self._round_name) )
         if self._winning_team_index == None:
             for team in self._teams:
                 vis_lines.append( '{}{}'.format(spacer_len * ' ', team.name) )
         else:
-            vis_lines.append( '{}{} ({}) def. {} ({})'.format(spacer_len * ' ', self._teams[self._winning_team_index].name, int(self._teams[self._winning_team_index].elo), self._teams[1-self._winning_team_index].name, int(self._teams[1-self._winning_team_index].elo)) )
+            vis_lines.append( '{}{} ({}) def. {} ({})'.format(spacer_len * ' ', self._teams[self._winning_team_index].name, int(self._teams[self._winning_team_index].seed), self._teams[1-self._winning_team_index].name, int(self._teams[1-self._winning_team_index].seed)) )
         for child in self._children:
-            vis_lines.extend( child.visualize( spacer_len = spacer_len + 2 ) )
+            vis_lines.extend( child.visualize( spacer_len = spacer_len + 2, print_score = False ) )
 
         return vis_lines
 
@@ -567,7 +569,7 @@ class BracketTree(object):
 
     def round_score(self):
         # Have to change score function manually below for now
-        return self.round_yahoo_score()
+        return self.round_cbs_score()
 
     def score(self):
         score = self.round_score()
