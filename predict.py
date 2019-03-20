@@ -36,7 +36,7 @@ import urllib.request
 import numpy as np
 
 # Constants
-use_multiprocessing = True
+use_multiprocessing = False
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
 source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2018/fivethirtyeight_ncaa_forecasts.csv'
@@ -44,7 +44,8 @@ default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
 
-elo_k_factor = 15 # How fast ELO changes
+# How fast ELO changes
+elo_k_factor = 15.0 / 30.463
 
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
@@ -87,16 +88,16 @@ class MonteCarloBracketSimulator(object):
     def __init__(self, starting_bt):
         self.highest_bt = starting_bt.copy()
         self.last_bt = starting_bt.copy()
-        self.highest_score = starting_bt.cbs_score()
+        self.highest_score = starting_bt.score()
         self.last_score = self.highest_score
         self.temperature = 100.0
 
     def set_last_bt(self, bt):
         self.last_bt = bt.copy()
-        self.last_score = bt.cbs_score()
+        self.last_score = bt.score()
 
     def boltzmann(self, bt):
-        bt_score = bt.cbs_score()
+        bt_score = bt.score()
         score_delta = self.last_score - bt_score
         boltz_factor = ( -1 * score_delta / self.temperature )
         probability = np.exp( min(40.0, max(-40.0, boltz_factor) ) )
@@ -141,7 +142,7 @@ class Team(object):
         region = line_data[-2]
         try:
             seed = int(line_data[-1])
-            elo = float(line_data[-3]) * 21.97 # 21.97 is the average conversion multipler from composite rating to ELO last year
+            elo = float(line_data[-3])
         except ValueError:
             print ('Error parsing this line:')
             print (team_line)
@@ -177,9 +178,10 @@ class Team(object):
                 del self.elo_history[round_number]
 
     def probability_of_victory(self, other):
-        return 1.0 / (1.0 + 10.0 ** ((other.elo - self.elo) / 400.0) )
 
-    def play_match(self, other, round_number, rigged = False, threshold_win_prob = 0.33):
+        return 1.0 / (1.0 + 10.0 ** ( ((other.elo - self.elo) * 30.464) / 400.0) )
+
+    def play_match(self, other, round_number, rigged = False, threshold_win_prob = None):
         '''
         Returns true if we beat other team, otherwise false
         Will randomly pick winner based on ELO, unless is rigged (in which case self wins)
@@ -193,10 +195,7 @@ class Team(object):
         elif threshold_win_prob != None and 1.0 - win_prob < threshold_win_prob:
             number_wins += 1
         elif random.random() < win_prob:
-                number_wins += 1
-
-        if (self.name == 'Virginia' and other.name == 'Maryland-Baltimore County' and number_wins == 0) or (self.name == 'Maryland-Baltimore County' and other.name == 'Virginia' and number_wins == 1):
-            print( round_number, self.name, int(self.elo), other.name, int(other.elo), number_wins, '%.2f' % win_prob )
+            number_wins += 1
 
         self.update_elo( number_wins, win_prob, round_number )
         other.update_elo( 1 - number_wins, 1.0 - win_prob, round_number )
@@ -342,7 +341,7 @@ class BracketTree(object):
             nodes.extend( child.all_nodes() )
         return nodes
 
-    def swap_winner(self, threshold_win_prob = 0.33):
+    def swap_winner(self, threshold_win_prob = None):
         assert( len(self._teams) == 2 )
         current_winner = self._teams[ self._winning_team_index ]
         current_loser = self._teams[ 1 - self._winning_team_index ]
@@ -454,10 +453,48 @@ class BracketTree(object):
             child.winners_dict( furthest_round )
         return furthest_round
 
-    def cbs_score(self):
-        '''
-        Score bracket according to default CBS scoring scheme
-        '''
+    def total_probability(self):
+        assert( len(self._teams) == 2 )
+        winning_team = self._teams[self._winning_team_index]
+        losing_team = self._teams[1-self._winning_team_index]
+
+        return_prob = 2.0
+        if len(self._children) == 0:
+            return_prob = winning_team.probability_of_victory(losing_team)
+        elif len(self._children) == 2:
+            child_with_winner = None
+            if self._children[0]._teams[0].name == winning_team.name or self._children[0]._teams[1].name == winning_team.name:
+                child_with_winner = self._children[0]
+            if self._children[1]._teams[0].name == winning_team.name or self._children[1]._teams[1].name == winning_team.name:
+                assert( child_with_winner == None )
+                child_with_winner = self._children[1]
+
+            return_prob = winning_team.probability_of_victory(losing_team) / child_with_winner.total_probability()
+        else:
+            raise Exception( 'number children: %d' % len(self._children) )
+
+        if return_prob > 1.0 or return_prob < 0.0:
+            print( winning_team, losing_team, self._round_number, winning_team.probability_of_victory(losing_team), self._children[0].total_probability(), self._children[1].total_probability() )
+            print( return_prob )
+            raise Exception()
+
+        print( winning_team.name, losing_team.name, self._round_number, return_prob )
+        return return_prob
+
+        # return 0
+        # for child in self._children:
+        #     probability_of_victory *= child.total_probability()
+
+        # assert( self._winning_team_index != None )
+        # assert( len(self._teams) == 2 )
+        # winning_team = self._teams[self._winning_team_index]
+        # losing_team = self._teams[1-self._winning_team_index]
+
+        # probability_of_victory *= winning_team.probability_of_victory(losing_team)
+
+        # return probability_of_victory
+
+    def total_cbs_score(self):
         #  This dictionary is used to calculate the expected score of a bracket in leagues where
         #  additional points are awarded for correct picks in later rounds. Each key corresponds
         #  to the number of a round (see round_dictionary) above, and each value corresponds to
@@ -474,23 +511,24 @@ class BracketTree(object):
             5:6,
             6:8
         }
-        score = 0.0
+        score = 0
         for child in self._children:
-            score += child.cbs_score()
-        # Only score rounds past first four
-        if self._round_number > 0:
-            assert( self._winning_team_index != None )
-            assert( len(self._teams) == 2 )
-            winning_team = self._teams[self._winning_team_index]
-            losing_team = self._teams[1-self._winning_team_index]
-            # Compute expected score based on probability of event
-            probability_of_victory = winning_team.probability_of_victory(losing_team)
-            # Threshold low probability events to have no value
-            if probability_of_victory < 0.05:
-                probability_of_victory = 0
-            score += probability_of_victory * ( winning_team.seed + default_cbs_scores[self._round_number] )
+            score += child.total_cbs_score()
+
+        assert( self._winning_team_index != None )
+        assert( len(self._teams) == 2 )
+        winning_team = self._teams[self._winning_team_index]
+
+        score += winning_team.seed + default_cbs_scores[self._round_number]
 
         return score
+
+    def score(self):
+        score = self.total_cbs_score()
+        total_probability = self.total_probability()
+
+        print( score, total_probability )
+        return score * total_probability#  * 2.0**63 # 2.0**63 is total number of possible brackets
 
 def simulate_winners_vector(bt_pickle):
     bt_copy = pickle.loads(bt_pickle)
