@@ -35,6 +35,8 @@ import urllib.request
 # NumPy
 import numpy as np
 
+import pandas as pd
+
 # Constants
 use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
@@ -135,21 +137,18 @@ class Team(object):
         self.elo_history = {}
 
     @classmethod
-    def init_from_line(cls, team_line, separator_character = ','):
-        line_data = team_line.split(separator_character)
-        assert( len(line_data) == 18 )
-        name = line_data[-5]
-        region = line_data[-3]
-        seed = line_data[-2]
+    def init_from_row(cls, row, separator_character = ','):
+        name = row['team_name']
+        region = row['team_region']
+        seed = row['team_seed']
         if seed.endswith('a') or seed.endswith('b'):
             seed = seed[:-1]
         try:
             seed = int(seed)
-            elo = float(line_data[-4])
+            elo = float(row['team_rating'])
         except ValueError:
             print ('Error parsing this line:')
-            print (team_line)
-            print (line_data)
+            print (row)
             raise
 
         return cls(name, region, seed, elo)
@@ -295,24 +294,24 @@ class BracketTree(object):
         if not os.path.isfile(default_data_file):
             urllib.request.urlretrieve(source_url, default_data_file)
 
-        with open(default_data_file, 'r') as f:
-            lines = f.readlines()
+        df = pd.read_csv(default_data_file)
+        df = df.loc[ df['gender'] == 'mens' ].copy().sort_values('forecast_date', ascending = False )
+        df = df.drop_duplicates( ['team_name'] )
 
         # Read in team data
-        for line in lines[1:]:
-            if line.startswith('mens'):
-                team = Team.init_from_line(line)
-                if min_seed == None or team.seed < min_seed:
-                    min_seed = team.seed
-                if max_seed == None or team.seed > max_seed:
-                    max_seed = team.seed
+        for index, row in df.iterrows():
+            team = Team.init_from_row(row)
+            if min_seed == None or team.seed < min_seed:
+                min_seed = team.seed
+            if max_seed == None or team.seed > max_seed:
+                max_seed = team.seed
 
-                if team.region not in teams:
-                    teams[team.region] = {}
-                if team.seed not in teams[team.region]:
-                    teams[team.region][team.seed] = [team]
-                else:
-                    teams[team.region][team.seed].append( team )
+            if team.region not in teams:
+                teams[team.region] = {}
+            if team.seed not in teams[team.region]:
+                teams[team.region][team.seed] = [team]
+            else:
+                teams[team.region][team.seed].append( team )
 
         # Initialize root node (finals) and semifinals
         max_round = max(round_dictionary.keys())
@@ -473,7 +472,8 @@ class BracketTree(object):
                 assert( child_with_winner == None )
                 child_with_winner = self._children[1]
 
-            return_prob = winning_team.probability_of_victory(losing_team) * child_with_winner.total_probability()
+            # return_prob = winning_team.probability_of_victory(losing_team) * child_with_winner.total_probability()
+            return_prob = winning_team.probability_of_victory(losing_team) * self._children[0].total_probability() * self._children[1].total_probability()
         else:
             raise Exception( 'number children: %d' % len(self._children) )
 
