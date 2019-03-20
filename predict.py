@@ -32,6 +32,7 @@ import pickle
 import threading
 import urllib.request
 import itertools
+import collections
 
 # NumPy
 import numpy as np
@@ -231,7 +232,7 @@ class BracketTree(object):
         # Return fast copy by pickling
         return pickle.loads( pickle.dumps(self) )
 
-    def visualize(self, spacer_len = 0, print_score = True):
+    def visualize(self, spacer_len = 0, print_score = True, view_by_round = False, top_level_call = True):
         vis_lines = []
         if print_score:
             vis_lines.append( 'Expected score: %.2f' % self.expected_score() )
@@ -242,7 +243,35 @@ class BracketTree(object):
         else:
             vis_lines.append( '{}{} ({}) def. {} ({})'.format(spacer_len * ' ', self._teams[self._winning_team_index].name, int(self._teams[self._winning_team_index].seed), self._teams[1-self._winning_team_index].name, int(self._teams[1-self._winning_team_index].seed)) )
         for child in self._children:
-            vis_lines.extend( child.visualize( spacer_len = spacer_len + 2, print_score = False ) )
+            if view_by_round:
+                vis_lines.extend( child.visualize( spacer_len = 0, print_score = False, view_by_round = True, top_level_call = False ) )
+            else:
+                vis_lines.extend( child.visualize( spacer_len = spacer_len + 2, print_score = False, view_by_round = False, top_level_call = False ) )
+
+        if top_level_call and view_by_round:
+            score_line = ''
+            if print_score:
+                score_line = vis_lines[0]
+                vis_lines = vis_lines[1:]
+            last_round_line = None
+            lines_by_round = collections.OrderedDict()
+            for i, vis_line in enumerate(vis_lines):
+                if i % 2 == 0:
+                    last_round_line = vis_line
+                    if last_round_line not in lines_by_round:
+                        lines_by_round[last_round_line] = []
+                else:
+                    lines_by_round[last_round_line].append( vis_line )
+
+            return_round_lines = []
+            if print_score:
+                return_round_lines.append(score_line)
+            for round_line in lines_by_round:
+                return_round_lines.append(round_line)
+                for team_line in lines_by_round[round_line]:
+                    return_round_lines.append(team_line)
+                return_round_lines.append('')
+            return return_round_lines
 
         return vis_lines
 
@@ -513,16 +542,16 @@ class BracketTree(object):
             0:0,
             1:1,
             2:2,
-            3:3,
-            4:4,
-            5:6,
-            6:8
+            3:4,
+            4:8,
+            5:16,
+            6:32
         }
         assert( self._winning_team_index != None )
         assert( len(self._teams) == 2 )
         winning_team = self._teams[self._winning_team_index]
 
-        return winning_team.seed + default_cbs_scores[self._round_number]
+        return default_cbs_scores[self._round_number]
 
     def round_yahoo_score(self):
         default_yahoo_scores = {
@@ -722,31 +751,52 @@ def run_monte_carlo( num_trials = 10000 ):
         for line in mc.highest_bt.visualize():
             f.write( line + '\n' )
 
-def run_quick_pick():
-    bt = BracketTree.init_starting_bracket()
-    bt.simulate_fill()
-    print ( '\n'.join( bt.visualize() ) )
+def run_quick_pick( score_thresh, view_by_round = False ):
+    while True:
+        bt = BracketTree.init_starting_bracket()
+        bt.simulate_fill()
+        if score_thresh == None or bt.expected_score() >= score_thresh:
+            break
+    print ( '\n'.join( bt.visualize( view_by_round = view_by_round ) ) )
 
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
-    parser.add_argument('-s', '--stats',
-                        type = int,
-                        default = 0,
-                        help = "Run many times to get statistics")
-    parser.add_argument('-m', '--monte_carlo',
-                        type = int,
-                        default = 0,
-                        help = "How many outer loops of ramping monte carlo simulation")
-    parser.add_argument('-q', '--quick_pick',
-                        default = False,
-                        action = 'store_true',
-                        help = 'Generate a "quick pick" style bracket')
+    parser.add_argument(
+        '-s', '--stats',
+        type = int,
+        default = 0,
+        help = "Run many times to get statistics"
+    )
+    parser.add_argument(
+        '-m', '--monte_carlo',
+        type = int,
+        default = 0,
+        help = "How many outer loops of ramping monte carlo simulation"
+    )
+    parser.add_argument(
+        '-q', '--quick_pick',
+        default = False,
+        action = 'store_true',
+        help = 'Generate a "quick pick" style bracket'
+    )
+    parser.add_argument(
+        '--quick_thresh',
+        default = None,
+        type = float,
+        help = 'If running a quick pick, you can specify a minimum expected score threshold here'
+    )
+    parser.add_argument(
+        '--view_by_round',
+        default = False,
+        action = 'store_true',
+        help = 'Print output by round'
+    )
 
     args = parser.parse_args()
 
     if args.quick_pick:
-        run_quick_pick()
+        run_quick_pick( args.quick_thresh, view_by_round = args.view_by_round )
 
     if args.stats > 0:
         run_stats( args.stats )
