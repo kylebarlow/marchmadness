@@ -48,7 +48,7 @@ default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
 
 # How fast ELO changes
-elo_k_factor = 15.0 / 30.463
+elo_k_factor = 0.00000001 # Arbitrarily small to prevent updates for now # 15.0 / 30.463
 
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
@@ -127,12 +127,13 @@ class MonteCarloBracketSimulator(object):
         return pickle.loads( pickle.dumps(self) )
 
 class Team(object):
-    def __init__(self, name, region, seed, elo):
+    def __init__(self, name, region, seed, elo, win_prob_by_round):
         self.region = region.lower()
         self.seed = seed
         self.name = name
         self.starting_elo = elo
         self.elo = elo
+        self.win_prob_by_round = win_prob_by_round
 
         # Keeps track of past ELO changes so we can undo them
         self.elo_history = {}
@@ -142,6 +143,11 @@ class Team(object):
         name = row['team_name']
         region = row['team_region']
         seed = row['team_seed']
+
+        win_prob_by_round = {}
+        for round_key in range(0, 7):
+            win_prob_by_round[round_key] = float( row[ 'rd%d_win' % (round_key + 1) ] )
+
         if seed.endswith('a') or seed.endswith('b'):
             seed = seed[:-1]
         try:
@@ -152,7 +158,7 @@ class Team(object):
             print (row)
             raise
 
-        return cls(name, region, seed, elo)
+        return cls(name, region, seed, elo, win_prob_by_round)
 
     def __repr__(self):
         return self.name
@@ -345,6 +351,12 @@ class BracketTree(object):
             nodes.extend( child.all_nodes() )
         return nodes
 
+    def all_teams(self):
+        all_teams = []
+        for node in self.all_nodes():
+            all_teams.extend( node._teams )
+        return all_teams
+
     def swap_winner(self, threshold_win_prob = None):
         assert( len(self._teams) == 2 )
         current_winner = self._teams[ self._winning_team_index ]
@@ -487,7 +499,7 @@ class BracketTree(object):
 
         # return probability_of_victory
 
-    def total_cbs_score(self):
+    def round_cbs_score(self):
         #  This dictionary is used to calculate the expected score of a bracket in leagues where
         #  additional points are awarded for correct picks in later rounds. Each key corresponds
         #  to the number of a round (see round_dictionary) above, and each value corresponds to
@@ -504,19 +516,13 @@ class BracketTree(object):
             5:6,
             6:8
         }
-        score = 0
-        for child in self._children:
-            score += child.total_cbs_score()
-
         assert( self._winning_team_index != None )
         assert( len(self._teams) == 2 )
         winning_team = self._teams[self._winning_team_index]
 
-        score += winning_team.seed + default_cbs_scores[self._round_number]
+        return winning_team.seed + default_cbs_scores[self._round_number]
 
-        return score
-
-    def total_yahoo_score(self):
+    def round_yahoo_score(self):
         default_yahoo_scores = {
             0:0,
             1:1,
@@ -526,42 +532,48 @@ class BracketTree(object):
             5:16,
             6:32
         }
-        score = 0
-        for child in self._children:
-            score += child.total_yahoo_score()
-
         assert( self._winning_team_index != None )
         assert( len(self._teams) == 2 )
         winning_team = self._teams[self._winning_team_index]
         losing_team = self._teams[1-self._winning_team_index]
 
-        score += max( [0, winning_team.seed - losing_team.seed] ) + default_yahoo_scores[self._round_number]
-
-        return score
+        return max( [0, winning_team.seed - losing_team.seed] ) + default_yahoo_scores[self._round_number]
 
     def expected_score(self):
-        doppel = self.copy().swap_winner()
+        # Expected value of our winner beating all possible opponents, recursive
+        score = 0.0
 
+        winning_team = self._teams[self._winning_team_index]
+        losing_team = self._teams[1-self._winning_team_index]
+        if len(self._children) == 2:
+            # Only recurse if two children (to avoid first four games)
+            child_with_loser = None
+            if self._children[0]._teams[0].name == losing_team.name or self._children[0]._teams[1].name == losing_team.name:
+                child_with_loser = self._children[0]
+            if self._children[1]._teams[0].name == losing_team.name or self._children[1]._teams[1].name == losing_team.name:
+                assert( child_with_loser == None )
+                child_with_loser = self._children[1]
+            assert( child_with_loser != None )
 
-
-        all_nodes = self.all_nodes()
-        score = self.score()
-        for i in range(1, len(all_nodes) + 1 ):
-            print( 'combo i', i, len(all_nodes) + 1 )
-            node_groups = itertools.combinations( all_nodes, i )
-            for nodes in node_groups:
-                for node in nodes:
-                    node.swap_winner()
-                score += self.score()
-                for node in nodes:
-                    node.swap_winner()
+            for possible_opponent in child_with_loser.all_teams():
+                prob_opponent = possible_opponent.win_prob_by_round[self._round_number-1]
+                score += winning_team.probability_of_victory(possible_opponent) * prob_opponent
+            for child in self._children:
+                score += child.expected_score()
+        else:
+            score += self.round_score() * winning_team.probability_of_victory(losing_team)
 
         return score
 
+    def round_score(self):
+        # Have to change score function manually below for now
+        return self.round_yahoo_score()
+
     def score(self):
-        score = self.total_yahoo_score() # Since this isn't an option, you have to change this line manually to use different score function
-        total_probability = self.total_probability()
-        return score * total_probability#  * 2.0**63 # 2.0**63 is total number of possible brackets
+        score = self.round_score()
+        for child in self._children:
+            score += child.round_score()
+        return score
 
 def simulate_winners_vector(bt_pickle):
     bt_copy = pickle.loads(bt_pickle)
