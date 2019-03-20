@@ -3,7 +3,7 @@
 
 """
 March Madness prediction script
-Copyright (C) 2013-2018 Kyle Barlow
+Copyright (C) 2013-2019 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -36,10 +36,10 @@ import urllib.request
 import numpy as np
 
 # Constants
-use_multiprocessing = False
+use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
-source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2018/fivethirtyeight_ncaa_forecasts.csv'
+source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2019/fivethirtyeight_ncaa_forecasts.csv'
 default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
@@ -137,12 +137,15 @@ class Team(object):
     @classmethod
     def init_from_line(cls, team_line, separator_character = ','):
         line_data = team_line.split(separator_character)
-        assert( len(line_data) == 16 )
-        name = line_data[-4]
-        region = line_data[-2]
+        assert( len(line_data) == 18 )
+        name = line_data[-5]
+        region = line_data[-3]
+        seed = line_data[-2]
+        if seed.endswith('a') or seed.endswith('b'):
+            seed = seed[:-1]
         try:
-            seed = int(line_data[-1])
-            elo = float(line_data[-3])
+            seed = int(seed)
+            elo = float(line_data[-4])
         except ValueError:
             print ('Error parsing this line:')
             print (team_line)
@@ -178,8 +181,9 @@ class Team(object):
                 del self.elo_history[round_number]
 
     def probability_of_victory(self, other):
-
-        return 1.0 / (1.0 + 10.0 ** ( ((other.elo - self.elo) * 30.464) / 400.0) )
+        prob = 1.0 / (1.0 + 10.0 ** ( (other.elo - self.elo) * 30.464 / 400.0) )
+        # print( 'prob_v', self, other, other.elo, self.elo, '%.2f' % prob )
+        return prob
 
     def play_match(self, other, round_number, rigged = False, threshold_win_prob = None):
         '''
@@ -469,16 +473,15 @@ class BracketTree(object):
                 assert( child_with_winner == None )
                 child_with_winner = self._children[1]
 
-            return_prob = winning_team.probability_of_victory(losing_team) / child_with_winner.total_probability()
+            return_prob = winning_team.probability_of_victory(losing_team) * child_with_winner.total_probability()
         else:
             raise Exception( 'number children: %d' % len(self._children) )
 
         if return_prob > 1.0 or return_prob < 0.0:
-            print( winning_team, losing_team, self._round_number, winning_team.probability_of_victory(losing_team), self._children[0].total_probability(), self._children[1].total_probability() )
+            print( winning_team, losing_team, self._round_number, winning_team.probability_of_victory(losing_team), child_with_winner.total_probability(), self._children[0].total_probability(), self._children[1].total_probability(), winning_team.elo, losing_team.elo )
             print( return_prob )
             raise Exception()
 
-        print( winning_team.name, losing_team.name, self._round_number, return_prob )
         return return_prob
 
         # return 0
@@ -523,11 +526,32 @@ class BracketTree(object):
 
         return score
 
-    def score(self):
-        score = self.total_cbs_score()
-        total_probability = self.total_probability()
+    def total_yahoo_score(self):
+        default_yahoo_scores = {
+            0:0,
+            1:1,
+            2:2,
+            3:4,
+            4:8,
+            5:16,
+            6:32
+        }
+        score = 0
+        for child in self._children:
+            score += child.total_yahoo_score()
 
-        print( score, total_probability )
+        assert( self._winning_team_index != None )
+        assert( len(self._teams) == 2 )
+        winning_team = self._teams[self._winning_team_index]
+        losing_team = self._teams[1-self._winning_team_index]
+
+        score += max( [0, winning_team.seed - losing_team.seed] ) + default_yahoo_scores[self._round_number]
+
+        return score
+
+    def score(self):
+        score = self.total_yahoo_score() # Since this isn't an option, you have to change this line manually to use different score function
+        total_probability = self.total_probability()
         return score * total_probability#  * 2.0**63 # 2.0**63 is total number of possible brackets
 
 def simulate_winners_vector(bt_pickle):
