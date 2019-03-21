@@ -334,6 +334,8 @@ class BracketTree(object):
 
         df = pd.read_csv(default_data_file)
         df = df.loc[ df['gender'] == 'mens' ].copy().sort_values('forecast_date', ascending = False )
+        df = df.loc[ df['forecast_date'] == df.iloc[0]['forecast_date'] ].copy()
+        df = df.loc[ df['team_alive'] == 1 ].copy()
         df = df.drop_duplicates( ['team_name'] )
 
         # Read in team data
