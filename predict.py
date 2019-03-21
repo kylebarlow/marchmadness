@@ -544,16 +544,16 @@ class BracketTree(object):
             0:0,
             1:1,
             2:2,
-            3:4,
-            4:8,
-            5:16,
-            6:32
+            3:3,
+            4:4,
+            5:6,
+            6:8
         }
         assert( self._winning_team_index != None )
         assert( len(self._teams) == 2 )
         winning_team = self._teams[self._winning_team_index]
 
-        return default_cbs_scores[self._round_number]
+        return default_cbs_scores[self._round_number] + winning_team.seed
 
     def round_yahoo_score(self):
         default_yahoo_scores = {
@@ -695,7 +695,7 @@ def run_monte_carlo_helper(temp_steps, max_perturbations, mc, blank_bt):
         mc.boltzmann( bt )
     return mc
 
-def run_monte_carlo( num_trials = 10000 ):
+def run_monte_carlo( num_trials = 10000, view_by_round = False ):
     # Parameters for MC simulation
     max_perturbations = 10
     starting_temp = 20.0
@@ -753,6 +753,9 @@ def run_monte_carlo( num_trials = 10000 ):
         for line in mc.highest_bt.visualize():
             f.write( line + '\n' )
 
+    if view_by_round:
+        print( '\n'.join( mc.highest_bt.visualize( view_by_round = True ) ) )
+
 def run_quick_pick( score_thresh, view_by_round = False ):
     while True:
         bt = BracketTree.init_starting_bracket()
@@ -804,7 +807,7 @@ def predictor():
         run_stats( args.stats )
 
     if args.monte_carlo > 0:
-        run_monte_carlo( args.monte_carlo )
+        run_monte_carlo( args.monte_carlo, view_by_round = args.view_by_round )
 
 if __name__ == "__main__":
     predictor()
