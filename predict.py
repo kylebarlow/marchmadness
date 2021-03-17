@@ -43,13 +43,13 @@ import pandas as pd
 use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
-source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2019/fivethirtyeight_ncaa_forecasts.csv'
+source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2021/fivethirtyeight_ncaa_forecasts.csv'
 default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
 
 # How fast ELO changes
-elo_k_factor = 0.00000001 # Arbitrarily small to prevent updates for now # 15.0 / 30.463
+elo_k_factor = 2.5 # Based on not-so precise guessing in order to get statistics after many simulations to match 538 closely enough
 
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
