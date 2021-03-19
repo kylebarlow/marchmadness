@@ -187,8 +187,11 @@ class Team(object):
                 self.elo -= self.elo_history[round_number]
                 del self.elo_history[round_number]
 
-    def probability_of_victory(self, other):
-        prob = 1.0 / (1.0 + 10.0 ** ( (other.elo - self.elo) * 30.464 / 400.0) )
+    def probability_of_victory(self, other, use_starting=False):
+        if use_starting:
+            prob = 1.0 / (1.0 + 10.0 ** ( (other.starting_elo - self.starting_elo) * 30.464 / 400.0) )
+        else:
+            prob = 1.0 / (1.0 + 10.0 ** ( (other.elo - self.elo) * 30.464 / 400.0) )
         # print( 'prob_v', self, other, other.elo, self.elo, '%.2f' % prob )
         return prob
 
@@ -590,11 +593,11 @@ class BracketTree(object):
 
             for possible_opponent in child_with_loser.all_teams():
                 prob_opponent = possible_opponent.win_prob_by_round[self._round_number-1]
-                score += winning_team.probability_of_victory(possible_opponent) * prob_opponent
+                score += winning_team.probability_of_victory(possible_opponent, use_starting=True) * prob_opponent
             for child in self._children:
                 score += child.expected_score()
         else:
-            score += self.round_score() * winning_team.probability_of_victory(losing_team)
+            score += self.round_score() * winning_team.probability_of_victory(losing_team, use_starting=True)
 
         return score
 
