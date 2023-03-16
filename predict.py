@@ -558,6 +558,21 @@ class BracketTree(object):
 
         return default_cbs_scores[self._round_number] + winning_team.seed
 
+    def round_espn_score(self):
+        default_espn_scores = {
+            0:0,
+            1:10,
+            2:20,
+            3:40,
+            4:80,
+            5:160,
+            6:320
+        }
+        assert( self._winning_team_index != None )
+        assert( len(self._teams) == 2 )
+
+        return default_espn_scores[self._round_number]
+
     def round_yahoo_score(self):
         default_yahoo_scores = {
             0:0,
