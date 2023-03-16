@@ -46,7 +46,7 @@ default_output_file = 'output.txt'
 source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2023/fivethirtyeight_ncaa_forecasts.csv'
 default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 
-region_pairings = ( ('east', 'west'), ('midwest', 'south') )
+region_pairings = ( ('east', 'south'), ('midwest', 'west') )
 
 # How fast ELO changes
 elo_k_factor = 2.5 # Based on not-so precise guessing in order to get statistics after many simulations to match 538 closely enough
