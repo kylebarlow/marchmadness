@@ -3,7 +3,7 @@
 
 """
 March Madness prediction script
-Copyright (C) 2013-2022 Kyle Barlow
+Copyright (C) 2013-2023 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@ import pandas as pd
 use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
-source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2022/fivethirtyeight_ncaa_forecasts.csv'
+source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2023/fivethirtyeight_ncaa_forecasts.csv'
 default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
 
 region_pairings = ( ('east', 'west'), ('midwest', 'south') )
@@ -547,10 +547,10 @@ class BracketTree(object):
             0:0,
             1:1,
             2:2,
-            3:3,
-            4:4,
-            5:6,
-            6:8
+            3:4,
+            4:8,
+            5:16,
+            6:32
         }
         assert( self._winning_team_index != None )
         assert( len(self._teams) == 2 )
