@@ -43,13 +43,23 @@ import pandas as pd
 use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
-source_url = 'https://projects.fivethirtyeight.com/march-madness-api/2023/fivethirtyeight_ncaa_forecasts.csv'
-default_data_file = 'fivethirtyeight_ncaa_forecasts.csv' # Caches url results
+elo_source_urls = {
+    "M": "https://www.warrennolan.com/basketball/2024/elo",
+    "W": "https://www.warrennolan.com/basketballw/2024/elo",
+}
+silver_files = {
+    "M": os.path.expanduser("~/Downloads/March_Madness_2024_Silver_Bulletin_03_18_2024.xlsx"),
+    "W": os.path.expanduser("~/Downloads/Womens_March_Madness_2024_Silver_Bulletin_03_19_2024.xlsx"),
+}
+default_data_file = 'merged_data.csv'
 
-region_pairings = ( ('east', 'south'), ('midwest', 'west') )
+region_pairings = {
+    "M": (('east', 'west'), ('midwest', 'south')),
+    "W": (('albany 1', 'portland 4'), ('albany 2', 'portland 3')),
+}
 
 # How fast ELO changes
-elo_k_factor = 2.5 # Based on not-so precise guessing in order to get statistics after many simulations to match 538 closely enough
+elo_k_factor = 2.5 # Based on not-so precise guessing in order to get final win probabilities close to others
 
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
@@ -140,7 +150,7 @@ class Team(object):
         self.elo_history = {}
 
     @classmethod
-    def init_from_row(cls, row, separator_character = ','):
+    def init_from_row(cls, row):
         name = row['team_name']
         region = row['team_region']
         seed = row['team_seed']
@@ -149,11 +159,11 @@ class Team(object):
         for round_key in range(0, 7):
             win_prob_by_round[round_key] = float( row[ 'rd%d_win' % (round_key + 1) ] )
 
-        if seed.endswith('a') or seed.endswith('b'):
+        if str(seed).endswith('a') or str(seed).endswith('b'):
             seed = seed[:-1]
         try:
             seed = int(seed)
-            elo = float(row['team_rating'])
+            elo = float(row['ELO'])
         except ValueError:
             print ('Error parsing this line:')
             print (row)
@@ -324,7 +334,7 @@ class BracketTree(object):
                         self.add_team( team )
 
     @classmethod
-    def init_starting_bracket(cls):
+    def init_starting_bracket(cls, m_or_w):
         '''
         Uses round_dictionary to initialize a full bracket. Bracket is filled in according to results so far.
         '''
@@ -332,14 +342,31 @@ class BracketTree(object):
         min_seed = None
         max_seed = None
 
-        if not os.path.isfile(default_data_file):
-            urllib.request.urlretrieve(source_url, default_data_file)
+        if os.path.isfile(default_data_file):
+            df = pd.read_csv(default_data_file)
+        else:
+            df = []
+            for g in ["M", "W"]:
+                source_url = elo_source_urls[g]
+                tables = pd.read_html(source_url)
+                assert (len(tables) == 1)
+                elo_df = tables[0]
+                elo_df = elo_df.loc[~elo_df['Team'].isna()].copy()
+                elo_df['Team'] = elo_df['Team'].str.lower().str.strip()
+                elo_df['m_or_w'] = g
+                print(elo_df.head())
 
-        df = pd.read_csv(default_data_file)
-        df = df.loc[ df['gender'] == 'mens' ].copy().sort_values('forecast_date', ascending = False )
-        df = df.loc[ df['forecast_date'] == df.iloc[0]['forecast_date'] ].copy()
-        df = df.loc[ df['team_alive'] == 1 ].copy()
-        df = df.drop_duplicates( ['team_name'] )
+                silver_df = pd.read_excel(silver_files[g])
+                silver_df = silver_df.loc[~silver_df['team_name'].isna()].copy()
+                # silver_df = silver_df[['team_id', 'team_name', 'team_seed', 'team_region']]
+                silver_df['team_name'] = silver_df['team_name'].str.lower().str.strip()
+                print(silver_df.head())
+
+                df.append(pd.merge(elo_df, silver_df, left_on='Team', right_on='team_name', how='right'))
+                # print(df.loc[df['Team'].isna() | df['team_name'].isna()])
+            df = pd.concat(df, ignore_index=True)
+            df.to_csv(default_data_file, index=False)
+        df = df.loc[df['m_or_w'] == m_or_w]
 
         # Read in team data
         for index, row in df.iterrows():
@@ -359,7 +386,7 @@ class BracketTree(object):
         # Initialize root node (finals) and semifinals
         max_round = max(round_dictionary.keys())
         finals = cls(max_round)
-        for region_names in region_pairings:
+        for region_names in region_pairings[m_or_w]:
             final_four = cls(max_round-1)
             for region_name in region_names:
                 elite_eight = cls(max_round-2, region_name = region_name)
@@ -618,7 +645,7 @@ class BracketTree(object):
 
     def round_score(self):
         # Have to change score function manually below for now
-        return self.round_cbs_score()
+        return self.round_espn_score()
 
     def score(self):
         score = self.round_score()
@@ -653,8 +680,8 @@ class CallbackVectorQueue(object):
         while not self.q.empty():
             time.sleep(0.001)
 
-def run_stats( number_simulations = 10000 ):
-    bt = BracketTree.init_starting_bracket()
+def run_stats( m_or_w, number_simulations = 10000 ):
+    bt = BracketTree.init_starting_bracket(m_or_w)
     # Initial simulation to initialize vector
     bt_pickle = pickle.dumps( bt )
     initial_v = simulate_winners_vector(bt_pickle)
@@ -713,7 +740,7 @@ def run_monte_carlo_helper(temp_steps, max_perturbations, mc, blank_bt):
         mc.boltzmann( bt )
     return mc
 
-def run_monte_carlo( num_trials = 10000, view_by_round = False ):
+def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False ):
     # Parameters for MC simulation
     max_perturbations = 10
     starting_temp = 20.0
@@ -723,7 +750,7 @@ def run_monte_carlo( num_trials = 10000, view_by_round = False ):
     highest_mc_bt_cache = os.path.join('cache', 'highest_mc_bt.pickle') # Saves best bracket for reloading as starting point in later simulations
     highest_vis_output = os.path.join('cache', 'highest_bracket.txt')
 
-    blank_bt = BracketTree.init_starting_bracket()
+    blank_bt = BracketTree.init_starting_bracket(m_or_w)
     if os.path.isfile( highest_mc_bt_cache ):
         with open(highest_mc_bt_cache, 'rb') as f:
             bt = pickle.load(f)
@@ -774,17 +801,24 @@ def run_monte_carlo( num_trials = 10000, view_by_round = False ):
     if view_by_round:
         print( '\n'.join( mc.highest_bt.visualize( view_by_round = True ) ) )
 
-def run_quick_pick( score_thresh, view_by_round = False ):
+def run_quick_pick( score_thresh, m_or_w, view_by_round = False ):
     while True:
-        bt = BracketTree.init_starting_bracket()
+        bt = BracketTree.init_starting_bracket(m_or_w)
         bt.simulate_fill()
         if score_thresh == None or bt.expected_score() >= score_thresh:
             break
+        else:
+            print ( 'Score too low, retrying' )
     print ( '\n'.join( bt.visualize( view_by_round = view_by_round ) ) )
 
 def predictor():
     # Setup argument parser
     parser = argparse.ArgumentParser(description=program_description)
+    parser.add_argument(
+        'm_or_w',
+        help="Run on men's or women's tourney",
+        choices=['M', 'W'],
+    )
     parser.add_argument(
         '-s', '--stats',
         type = int,
@@ -819,13 +853,13 @@ def predictor():
     args = parser.parse_args()
 
     if args.quick_pick:
-        run_quick_pick( args.quick_thresh, view_by_round = args.view_by_round )
+        run_quick_pick( args.quick_thresh, args.m_or_w, view_by_round = args.view_by_round )
 
     if args.stats > 0:
-        run_stats( args.stats )
+        run_stats( args.m_or_w, args.stats )
 
     if args.monte_carlo > 0:
-        run_monte_carlo( args.monte_carlo, view_by_round = args.view_by_round )
+        run_monte_carlo( args.m_or_w, args.monte_carlo, view_by_round = args.view_by_round )
 
 if __name__ == "__main__":
     predictor()
