@@ -43,23 +43,25 @@ import pandas as pd
 use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
-elo_source_urls = {
-    "M": "https://www.warrennolan.com/basketball/2024/elo",
-    "W": "https://www.warrennolan.com/basketballw/2024/elo",
+
+silver_odds_files = {
+    "M": os.path.expanduser("~/Downloads/Sbcb_Mens_Odds_March_19_2025.xlsx"),
+    "W": os.path.expanduser("~/Downloads/Sbcb_Womens_Odds_March_17_2025.xlsx"),
 }
+
 silver_files = {
-    "M": os.path.expanduser("~/Downloads/March_Madness_2024_Silver_Bulletin_03_18_2024.xlsx"),
-    "W": os.path.expanduser("~/Downloads/Womens_March_Madness_2024_Silver_Bulletin_03_19_2024.xlsx"),
+    "M": os.path.expanduser("~/Downloads/Sbcb_Mens_Rating_Comparison_March_18_330pm.xlsx"),
+    "W": os.path.expanduser("~/Downloads/Sbcb_Womens_Rating_Comparison.xlsx"),
 }
 default_data_file = 'merged_data.csv'
 
 region_pairings = {
-    "M": (('east', 'west'), ('midwest', 'south')),
-    "W": (('albany 1', 'portland 4'), ('albany 2', 'portland 3')),
+    "M": (('east', 'midwest'), ('west', 'south')),
+    "W": (('spokane 1', 'spokane 4'), ('birmingham 3', 'birmingham 2')),
 }
 
 # How fast ELO changes
-elo_k_factor = 2.5 # Based on not-so precise guessing in order to get final win probabilities close to others
+elo_k_factor = 1.5 # Based on not-so precise guessing in order to get final win probabilities close to others
 
 # Mapping for strings describing each round to an integer (for indexing)
 round_dictionary = {
@@ -163,7 +165,7 @@ class Team(object):
             seed = seed[:-1]
         try:
             seed = int(seed)
-            elo = float(row['ELO'])
+            elo = float(row['Adjusted Composite'])
         except ValueError:
             print ('Error parsing this line:')
             print (row)
@@ -199,10 +201,10 @@ class Team(object):
 
     def probability_of_victory(self, other, use_starting=False):
         if use_starting:
-            prob = 1.0 / (1.0 + 10.0 ** ( (other.starting_elo - self.starting_elo) * 30.464 / 400.0) )
+            prob = 1.0 / (1.0 + 10.0 ** ( (other.starting_elo - self.starting_elo) / 400.0) )
         else:
-            prob = 1.0 / (1.0 + 10.0 ** ( (other.elo - self.elo) * 30.464 / 400.0) )
-        # print( 'prob_v', self, other, other.elo, self.elo, '%.2f' % prob )
+            prob = 1.0 / (1.0 + 10.0 ** ( (other.elo - self.elo)  / 400.0) )
+        # print( 'prob_v', self, other, self.elo, other.elo, '%.2f' % prob, use_starting )
         return prob
 
     def play_match(self, other, round_number, rigged = False, threshold_win_prob = None):
@@ -347,22 +349,25 @@ class BracketTree(object):
         else:
             df = []
             for g in ["M", "W"]:
-                source_url = elo_source_urls[g]
-                tables = pd.read_html(source_url)
-                assert (len(tables) == 1)
-                elo_df = tables[0]
-                elo_df = elo_df.loc[~elo_df['Team'].isna()].copy()
-                elo_df['Team'] = elo_df['Team'].str.lower().str.strip()
-                elo_df['m_or_w'] = g
-                print(elo_df.head())
-
-                silver_df = pd.read_excel(silver_files[g])
-                silver_df = silver_df.loc[~silver_df['team_name'].isna()].copy()
+                silver_df = pd.read_excel(silver_files[g], skiprows=15)
+                silver_df = silver_df.loc[~silver_df['Team'].isna()].copy()
                 # silver_df = silver_df[['team_id', 'team_name', 'team_seed', 'team_region']]
-                silver_df['team_name'] = silver_df['team_name'].str.lower().str.strip()
+                silver_df['team_name'] = silver_df['Team'].str.lower().str.strip()
                 print(silver_df.head())
 
-                df.append(pd.merge(elo_df, silver_df, left_on='Team', right_on='team_name', how='right'))
+                silver_odds_df = pd.read_excel(silver_odds_files[g])
+                silver_odds_df = silver_odds_df.loc[~silver_odds_df['team_name'].isna()].copy()
+                silver_odds_df = silver_odds_df.loc[silver_odds_df['team_alive'] == 1].copy()
+                silver_odds_df['team_name'] = silver_odds_df['team_name'].str.lower().str.strip()
+                silver_odds_df['m_or_w'] = g
+                print(silver_odds_df.head())
+                
+                silver_df = silver_odds_df.merge(silver_df, on=['team_name'], how='inner')
+
+                print('Merged length:', g, len(silver_df))
+                print(silver_df.head())
+
+                df.append(silver_df)
                 # print(df.loc[df['Team'].isna() | df['team_name'].isna()])
             df = pd.concat(df, ignore_index=True)
             df.to_csv(default_data_file, index=False)
