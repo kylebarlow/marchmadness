@@ -1,5 +1,7 @@
 fivethirtyeight_ncaa_forecasts.csv
 cache/*
+*.xlsx
+*.csv
 
 *.py[cod]
 
