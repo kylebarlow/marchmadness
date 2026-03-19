@@ -96,28 +96,20 @@ seed_pairs_by_round = {
 }
 
 class MonteCarloBracketSimulator(object):
-    def __init__(self, starting_bt, score_type='espn', metric='expected', median_sims=100):
+    def __init__(self, starting_bt, score_type='espn'):
         self.score_type = score_type
-        self.metric = metric
-        self.median_sims = median_sims
         self.highest_bt = starting_bt.copy()
         self.last_bt = starting_bt.copy()
-        self.highest_score = self.calculate_bt_score(starting_bt)
+        self.highest_score = starting_bt.expected_score(score_type=self.score_type)
         self.last_score = self.highest_score
         self.temperature = 100.0
 
-    def calculate_bt_score(self, bt):
-        if self.metric == 'median':
-            return bt.median_score(num_simulations=self.median_sims, score_type=self.score_type)
-        else:
-            return bt.expected_score(score_type=self.score_type)
-
     def set_last_bt(self, bt):
         self.last_bt = bt.copy()
-        self.last_score = self.calculate_bt_score(bt)
+        self.last_score = bt.expected_score(score_type=self.score_type)
 
     def boltzmann(self, bt):
-        bt_score = self.calculate_bt_score(bt)
+        bt_score = bt.expected_score(score_type=self.score_type)
         score_delta = self.last_score - bt_score
         boltz_factor = ( -1 * score_delta / self.temperature )
         probability = np.exp( min(40.0, max(-40.0, boltz_factor) ) )
@@ -666,47 +658,10 @@ class BracketTree(object):
 
         return score
 
-    def score(self, score_type='espn'):
-        score = self.round_score(score_type=score_type)
+    def score(self):
+        score = self.round_score()
         for child in self._children:
-            score += child.score(score_type=score_type)
-        return score
-
-    def median_score(self, num_simulations=100, score_type='espn'):
-        # Simulate the tournament num_simulations times and return the median score
-        # We need a "blank" bracket to simulate outcomes from
-        # Instead of manually clearing, we can just init a new one
-        # But we need to know if it's M or W.
-        # Let's find the m_or_w from the teams.
-        m_or_w = 'M'
-        for team in self.all_teams():
-            # This is a bit hacky but should work if we can find the region pairings
-            if team.region in [r for pair in region_pairings['W'] for r in pair]:
-                m_or_w = 'W'
-                break
-
-        scores = []
-        for i in range(num_simulations):
-            outcome_bt = BracketTree.init_starting_bracket(m_or_w)
-            outcome_bt.simulate_fill()
-            scores.append(self.calculate_score_against_outcome(outcome_bt, score_type=score_type))
-
-        return np.median(scores)
-
-    def calculate_score_against_outcome(self, outcome_bt, score_type='espn'):
-        # outcome_bt is a bracket that has been simulate_fill()'ed to represent one possible reality
-        # self is the bracket we are scoring
-        score = 0.0
-        # Check if our winner for this round matches the outcome winner
-        our_winner = self._teams[self._winning_team_index]
-        outcome_winner = outcome_bt._teams[outcome_bt._winning_team_index]
-
-        if our_winner.name == outcome_winner.name:
-            score += self.round_score(score_type=score_type)
-
-        for i, child in enumerate(self._children):
-            score += child.calculate_score_against_outcome(outcome_bt._children[i], score_type=score_type)
-
+            score += child.round_score()
         return score
 
 def simulate_winners_vector(bt_pickle):
@@ -796,15 +751,15 @@ def run_monte_carlo_helper(temp_steps, max_perturbations, mc, blank_bt):
         mc.boltzmann( bt )
     return mc
 
-def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False, score_type = 'espn', metric = 'expected', median_sims = 100 ):
+def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False, score_type = 'espn' ):
     # Parameters for MC simulation
     max_perturbations = 10
     starting_temp = 20.0
     ending_temp = 1.0
     low_temp_final_steps = 500
     # Output parameters
-    highest_mc_bt_cache = os.path.join('cache', 'highest_mc_bt_{}_{}.pickle'.format(metric, m_or_w)) # Saves best bracket for reloading as starting point in later simulations
-    highest_vis_output = os.path.join('cache', 'highest_bracket_{}_{}.txt'.format(metric, m_or_w))
+    highest_mc_bt_cache = os.path.join('cache', 'highest_mc_bt.pickle') # Saves best bracket for reloading as starting point in later simulations
+    highest_vis_output = os.path.join('cache', 'highest_bracket.txt')
 
     blank_bt = BracketTree.init_starting_bracket(m_or_w)
     if os.path.isfile( highest_mc_bt_cache ):
@@ -817,7 +772,7 @@ def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False, score_ty
         bt = blank_bt.copy()
         bt.simulate_fill()
 
-    mc = MonteCarloBracketSimulator( bt, score_type = score_type, metric = metric, median_sims = median_sims )
+    mc = MonteCarloBracketSimulator( bt, score_type = score_type )
 
     temp_steps = list( np.arange(starting_temp, ending_temp, -0.005) )
     temp_steps.extend( [ending_temp for x in range(low_temp_final_steps) ] )
@@ -833,29 +788,15 @@ def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False, score_ty
             cpu_count = multiprocessing.cpu_count()
         else:
             cpu_count = 1
-
-        # Use a list to track progress across multiple async calls
-        # Since we're using a Pool, we'll track the number of completed tasks
-        completed_tasks = 0
-        total_tasks = cpu_count
-
-        def wrap_callback(thread_mc):
-            nonlocal completed_tasks, total_tasks
-            completed_tasks += 1
-            sys.stdout.write('\rMC trial progress: %d/%d' % (completed_tasks, total_tasks))
-            sys.stdout.flush()
-            callback(thread_mc)
-
-        for _ in range(cpu_count):
+        for cpu_count in range(cpu_count):
             if use_multiprocessing:
-                pool.apply_async( run_monte_carlo_helper, args = (temp_steps, max_perturbations, mc.copy(), blank_bt), callback = wrap_callback )
+                pool.apply_async( run_monte_carlo_helper, args = (temp_steps, max_perturbations, mc.copy(), blank_bt), callback = callback )
             else:
-                wrap_callback( run_monte_carlo_helper( temp_steps, max_perturbations, mc.copy(), blank_bt ) )
+                callback( run_monte_carlo_helper( temp_steps, max_perturbations, mc.copy(), blank_bt ) )
 
         if use_multiprocessing:
             pool.close()
             pool.join()
-        sys.stdout.write('\n')
 
         print ( 'MC simulation complete (round {})'.format(trial) )
         print ( 'Highest score: %.2f' % mc.highest_score )
@@ -925,18 +866,6 @@ def predictor():
         choices = ['espn', 'cbs', 'yahoo', 'ncaa'],
         help = 'Scoring system to use for expected score calculations'
     )
-    parser.add_argument(
-        '--metric',
-        default = 'expected',
-        choices = ['expected', 'median'],
-        help = 'Metric to optimize for in Monte Carlo simulation'
-    )
-    parser.add_argument(
-        '--median_sims',
-        default = 100,
-        type = int,
-        help = 'Number of simulations to run for median score calculation'
-    )
 
     args = parser.parse_args()
 
@@ -947,7 +876,7 @@ def predictor():
         run_stats( args.m_or_w, args.stats )
 
     if args.monte_carlo > 0:
-        run_monte_carlo( args.m_or_w, args.monte_carlo, view_by_round = args.view_by_round, score_type = args.score_type, metric = args.metric, median_sims = args.median_sims )
+        run_monte_carlo( args.m_or_w, args.monte_carlo, view_by_round = args.view_by_round, score_type = args.score_type )
 
 if __name__ == "__main__":
     predictor()
