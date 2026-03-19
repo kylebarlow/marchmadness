@@ -248,6 +248,63 @@ class BracketTree(object):
         # Return fast copy by pickling
         return pickle.loads( pickle.dumps(self) )
 
+    def visualize_html(self, score_type='espn'):
+        # This will generate a simple HTML representation of the bracket
+        # We'll use a table-based or flexbox-based layout for a traditional look
+        
+        # First, organize teams by round and region
+        rounds = collections.defaultdict(list)
+        all_nodes = self.all_nodes()
+        for node in all_nodes:
+            if node._winning_team_index is not None:
+                winner = node._teams[node._winning_team_index]
+                loser = node._teams[1 - node._winning_team_index]
+                rounds[node._round_number].append({
+                    'winner': winner,
+                    'loser': loser,
+                    'region': node._region_name
+                })
+        
+        html = """
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body { font-family: sans-serif; background-color: #f0f0f0; }
+    .bracket { display: flex; flex-direction: row; overflow-x: auto; padding: 20px; }
+    .round { display: flex; flex-direction: column; justify-content: space-around; margin: 0 20px; min-width: 150px; }
+    .matchup { background: white; border: 1px solid #ccc; padding: 5px; margin: 10px 0; border-radius: 4px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
+    .team { display: flex; justify-content: space-between; padding: 2px 5px; }
+    .winner { font-weight: bold; color: #2c3e50; }
+    .loser { color: #7f8c8d; text-decoration: line-through; }
+    .seed { font-size: 0.8em; color: #95a5a6; margin-right: 5px; }
+    h1 { text-align: center; color: #2c3e50; }
+    .score { text-align: center; font-style: italic; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+"""
+        html += f"<h1>March Madness Bracket - {self._round_name}</h1>"
+        html += f"<div class='score'>Expected Score ({score_type}): {self.expected_score(score_type=score_type):.2f}</div>"
+        html += "<div class='bracket'>"
+        
+        # Sort rounds by number
+        for r_num in sorted(rounds.keys()):
+            html += f"<div class='round'><h3>{round_dictionary[r_num]}</h3>"
+            for match in rounds[r_num]:
+                html += "<div class='matchup'>"
+                html += f"<div class='team winner'><span class='seed'>{int(match['winner'].seed)}</span> {match['winner'].name}</div>"
+                html += f"<div class='team loser'><span class='seed'>{int(match['loser'].seed)}</span> {match['loser'].name}</div>"
+                html += "</div>"
+            html += "</div>"
+            
+        html += """
+</div>
+</body>
+</html>
+"""
+        return html
+
     def visualize(self, spacer_len = 0, print_score = True, view_by_round = False, top_level_call = True, score_type = 'espn'):
         vis_lines = []
         if print_score:
@@ -809,6 +866,10 @@ def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False, score_ty
         for line in mc.highest_bt.visualize(score_type = score_type):
             f.write( line + '\n' )
 
+    highest_html_output = os.path.join('cache', 'bracket_view.html')
+    with open(highest_html_output, 'w') as f:
+        f.write(mc.highest_bt.visualize_html(score_type = score_type))
+
     if view_by_round:
         print( '\n'.join( mc.highest_bt.visualize( view_by_round = True, score_type = score_type ) ) )
 
@@ -870,7 +931,23 @@ def predictor():
     args = parser.parse_args()
 
     if args.quick_pick:
-        run_quick_pick( args.quick_thresh, args.m_or_w, view_by_round = args.view_by_round, score_type = args.score_type )
+        # Generate a "quick pick" style bracket
+        while True:
+            bt = BracketTree.init_starting_bracket(args.m_or_w)
+            bt.simulate_fill()
+            if args.quick_thresh == None or bt.expected_score(score_type = args.score_type) >= args.quick_thresh:
+                break
+            else:
+                print ( 'Score too low, retrying' )
+        print ( '\n'.join( bt.visualize( view_by_round = args.view_by_round, score_type = args.score_type ) ) )
+        
+        # Also save HTML for quick pick
+        highest_html_output = os.path.join('cache', 'bracket_view.html')
+        if not os.path.isdir('cache'):
+            os.makedirs('cache')
+        with open(highest_html_output, 'w') as f:
+            f.write(bt.visualize_html(score_type = args.score_type))
+        print(f"HTML bracket view saved to {highest_html_output}")
 
     if args.stats > 0:
         run_stats( args.m_or_w, args.stats )
