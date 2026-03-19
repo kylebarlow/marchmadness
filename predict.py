@@ -96,19 +96,20 @@ seed_pairs_by_round = {
 }
 
 class MonteCarloBracketSimulator(object):
-    def __init__(self, starting_bt):
+    def __init__(self, starting_bt, score_type='espn'):
+        self.score_type = score_type
         self.highest_bt = starting_bt.copy()
         self.last_bt = starting_bt.copy()
-        self.highest_score = starting_bt.expected_score()
+        self.highest_score = starting_bt.expected_score(score_type=self.score_type)
         self.last_score = self.highest_score
         self.temperature = 100.0
 
     def set_last_bt(self, bt):
         self.last_bt = bt.copy()
-        self.last_score = bt.expected_score()
+        self.last_score = bt.expected_score(score_type=self.score_type)
 
     def boltzmann(self, bt):
-        bt_score = bt.expected_score()
+        bt_score = bt.expected_score(score_type=self.score_type)
         score_delta = self.last_score - bt_score
         boltz_factor = ( -1 * score_delta / self.temperature )
         probability = np.exp( min(40.0, max(-40.0, boltz_factor) ) )
@@ -247,10 +248,10 @@ class BracketTree(object):
         # Return fast copy by pickling
         return pickle.loads( pickle.dumps(self) )
 
-    def visualize(self, spacer_len = 0, print_score = True, view_by_round = False, top_level_call = True):
+    def visualize(self, spacer_len = 0, print_score = True, view_by_round = False, top_level_call = True, score_type = 'espn'):
         vis_lines = []
         if print_score:
-            vis_lines.append( 'Expected score: %.2f' % self.expected_score() )
+            vis_lines.append( 'Expected score: %.2f' % self.expected_score(score_type=score_type) )
         vis_lines.append( '{}{}'.format(spacer_len * '-', self._round_name) )
         if self._winning_team_index == None:
             for team in self._teams:
@@ -259,9 +260,9 @@ class BracketTree(object):
             vis_lines.append( '{}{} ({}) def. {} ({})'.format(spacer_len * ' ', self._teams[self._winning_team_index].name, int(self._teams[self._winning_team_index].seed), self._teams[1-self._winning_team_index].name, int(self._teams[1-self._winning_team_index].seed)) )
         for child in self._children:
             if view_by_round:
-                vis_lines.extend( child.visualize( spacer_len = 0, print_score = False, view_by_round = True, top_level_call = False ) )
+                vis_lines.extend( child.visualize( spacer_len = 0, print_score = False, view_by_round = True, top_level_call = False, score_type = score_type ) )
             else:
-                vis_lines.extend( child.visualize( spacer_len = spacer_len + 2, print_score = False, view_by_round = False, top_level_call = False ) )
+                vis_lines.extend( child.visualize( spacer_len = spacer_len + 2, print_score = False, view_by_round = False, top_level_call = False, score_type = score_type ) )
 
         if top_level_call and view_by_round:
             score_line = ''
@@ -606,7 +607,32 @@ class BracketTree(object):
 
         return max( [0, winning_team.seed - losing_team.seed] ) + default_yahoo_scores[self._round_number]
 
-    def expected_score(self):
+    def round_ncaa_score(self):
+        default_ncaa_scores = {
+            0:0,
+            1:1,
+            2:2,
+            3:4,
+            4:8,
+            5:16,
+            6:32
+        }
+        assert( self._winning_team_index != None )
+        assert( len(self._teams) == 2 )
+
+        return default_ncaa_scores[self._round_number]
+
+    def round_score(self, score_type='espn'):
+        if score_type == 'cbs':
+            return self.round_cbs_score()
+        elif score_type == 'yahoo':
+            return self.round_yahoo_score()
+        elif score_type == 'ncaa':
+            return self.round_ncaa_score()
+        else:
+            return self.round_espn_score()
+
+    def expected_score(self, score_type='espn'):
         # Expected value of our winner beating all possible opponents, recursive
         score = 0.0
 
@@ -626,15 +652,11 @@ class BracketTree(object):
                 prob_opponent = possible_opponent.win_prob_by_round[self._round_number-1]
                 score += winning_team.probability_of_victory(possible_opponent, use_starting=True) * prob_opponent
             for child in self._children:
-                score += child.expected_score()
+                score += child.expected_score(score_type=score_type)
         else:
-            score += self.round_score() * winning_team.probability_of_victory(losing_team, use_starting=True)
+            score += self.round_score(score_type=score_type) * winning_team.probability_of_victory(losing_team, use_starting=True)
 
         return score
-
-    def round_score(self):
-        # Have to change score function manually below for now
-        return self.round_espn_score()
 
     def score(self):
         score = self.round_score()
@@ -729,7 +751,7 @@ def run_monte_carlo_helper(temp_steps, max_perturbations, mc, blank_bt):
         mc.boltzmann( bt )
     return mc
 
-def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False ):
+def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False, score_type = 'espn' ):
     # Parameters for MC simulation
     max_perturbations = 10
     starting_temp = 20.0
@@ -750,7 +772,7 @@ def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False ):
         bt = blank_bt.copy()
         bt.simulate_fill()
 
-    mc = MonteCarloBracketSimulator( bt )
+    mc = MonteCarloBracketSimulator( bt, score_type = score_type )
 
     temp_steps = list( np.arange(starting_temp, ending_temp, -0.005) )
     temp_steps.extend( [ending_temp for x in range(low_temp_final_steps) ] )
@@ -784,21 +806,21 @@ def run_monte_carlo( m_or_w, num_trials = 10000, view_by_round = False ):
         pickle.dump(mc.highest_bt, f)
 
     with open(highest_vis_output, 'w') as f:
-        for line in mc.highest_bt.visualize():
+        for line in mc.highest_bt.visualize(score_type = score_type):
             f.write( line + '\n' )
 
     if view_by_round:
-        print( '\n'.join( mc.highest_bt.visualize( view_by_round = True ) ) )
+        print( '\n'.join( mc.highest_bt.visualize( view_by_round = True, score_type = score_type ) ) )
 
-def run_quick_pick( score_thresh, m_or_w, view_by_round = False ):
+def run_quick_pick( score_thresh, m_or_w, view_by_round = False, score_type = 'espn' ):
     while True:
         bt = BracketTree.init_starting_bracket(m_or_w)
         bt.simulate_fill()
-        if score_thresh == None or bt.expected_score() >= score_thresh:
+        if score_thresh == None or bt.expected_score(score_type = score_type) >= score_thresh:
             break
         else:
             print ( 'Score too low, retrying' )
-    print ( '\n'.join( bt.visualize( view_by_round = view_by_round ) ) )
+    print ( '\n'.join( bt.visualize( view_by_round = view_by_round, score_type = score_type ) ) )
 
 def predictor():
     # Setup argument parser
@@ -838,17 +860,23 @@ def predictor():
         action = 'store_true',
         help = 'Print output by round'
     )
+    parser.add_argument(
+        '--score_type',
+        default = 'espn',
+        choices = ['espn', 'cbs', 'yahoo', 'ncaa'],
+        help = 'Scoring system to use for expected score calculations'
+    )
 
     args = parser.parse_args()
 
     if args.quick_pick:
-        run_quick_pick( args.quick_thresh, args.m_or_w, view_by_round = args.view_by_round )
+        run_quick_pick( args.quick_thresh, args.m_or_w, view_by_round = args.view_by_round, score_type = args.score_type )
 
     if args.stats > 0:
         run_stats( args.m_or_w, args.stats )
 
     if args.monte_carlo > 0:
-        run_monte_carlo( args.m_or_w, args.monte_carlo, view_by_round = args.view_by_round )
+        run_monte_carlo( args.m_or_w, args.monte_carlo, view_by_round = args.view_by_round, score_type = args.score_type )
 
 if __name__ == "__main__":
     predictor()
