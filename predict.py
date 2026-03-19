@@ -916,6 +916,18 @@ def predictor():
         help = 'If running a quick pick, you can specify a minimum expected score threshold here'
     )
     parser.add_argument(
+        '--quick_percentile',
+        default = None,
+        type = float,
+        help = 'If running a quick pick, you can specify a percentile of brackets to return (e.g. 90 for 90th percentile)'
+    )
+    parser.add_argument(
+        '--quick_n',
+        default = 1000,
+        type = int,
+        help = 'Number of brackets to generate for percentile quick pick (default 1000)'
+    )
+    parser.add_argument(
         '--view_by_round',
         default = False,
         action = 'store_true',
@@ -930,15 +942,35 @@ def predictor():
 
     args = parser.parse_args()
 
-    if args.quick_pick:
+    if args.quick_pick or args.quick_percentile is not None:
         # Generate a "quick pick" style bracket
-        while True:
-            bt = BracketTree.init_starting_bracket(args.m_or_w)
-            bt.simulate_fill()
-            if args.quick_thresh == None or bt.expected_score(score_type = args.score_type) >= args.quick_thresh:
-                break
-            else:
-                print ( 'Score too low, retrying' )
+        if args.quick_percentile is not None:
+            print(f"Generating {args.quick_n} brackets to find {args.quick_percentile}th percentile...")
+            brackets = []
+            for _ in range(args.quick_n):
+                bt = BracketTree.init_starting_bracket(args.m_or_w)
+                bt.simulate_fill()
+                brackets.append((bt.expected_score(score_type=args.score_type), bt))
+            
+            # Sort by score
+            brackets.sort(key=lambda x: x[0])
+            
+            # Find the percentile
+            index = int(len(brackets) * (args.quick_percentile / 100.0))
+            if index >= len(brackets):
+                index = len(brackets) - 1
+            
+            score, bt = brackets[index]
+            print(f"Found {args.quick_percentile}th percentile bracket with score {score:.2f}")
+        else:
+            while True:
+                bt = BracketTree.init_starting_bracket(args.m_or_w)
+                bt.simulate_fill()
+                if args.quick_thresh == None or bt.expected_score(score_type = args.score_type) >= args.quick_thresh:
+                    break
+                else:
+                    print ( 'Score too low, retrying' )
+        
         print ( '\n'.join( bt.visualize( view_by_round = args.view_by_round, score_type = args.score_type ) ) )
         
         # Also save HTML for quick pick
