@@ -3,7 +3,7 @@
 
 """
 March Madness prediction script
-Copyright (C) 2013-2023 Kyle Barlow
+Copyright (C) 2013-2026 Kyle Barlow
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -44,20 +44,15 @@ use_multiprocessing = True
 program_description = 'Python script to generate march madness brackets from ELO input (as in the format of, but not necessarily, the 538 data)'
 default_output_file = 'output.txt'
 
-silver_odds_files = {
-    "M": os.path.expanduser("~/Downloads/Sbcb_Mens_Odds_March_19_2025.xlsx"),
-    "W": os.path.expanduser("~/Downloads/Sbcb_Womens_Odds_March_17_2025.xlsx"),
-}
-
 silver_files = {
-    "M": os.path.expanduser("~/Downloads/Sbcb_Mens_Rating_Comparison_March_18_330pm.xlsx"),
-    "W": os.path.expanduser("~/Downloads/Sbcb_Womens_Rating_Comparison.xlsx"),
+    "M": "Sb_Mens_Ncaa_Projections_20260318_00h.xlsx",
+    "W": "Sb_Womens_Ncaa_Projections_20260318_23h.xlsx",
 }
 default_data_file = 'merged_data.csv'
 
 region_pairings = {
     "M": (('east', 'midwest'), ('west', 'south')),
-    "W": (('spokane 1', 'spokane 4'), ('birmingham 3', 'birmingham 2')),
+    "W": (('fort worth 1', 'sacramento 4'), ('fort worth 3', 'sacramento 2')),
 }
 
 # How fast ELO changes
@@ -153,19 +148,24 @@ class Team(object):
 
     @classmethod
     def init_from_row(cls, row):
-        name = row['team_name']
-        region = row['team_region']
-        seed = row['team_seed']
+        name = row['Team']
+        region = row['Region']
+        seed = row['Seed']
 
         win_prob_by_round = {}
-        for round_key in range(0, 7):
-            win_prob_by_round[round_key] = float( row[ 'rd%d_win' % (round_key + 1) ] )
+        # Mapping new column names to round indices
+        # Round 0: First Four (not explicitly in these columns, but Rd64 is prob of winning first game for some)
+        # The script uses rd1_win to rd7_win
+        # Rd64, Rd32, Sweet16, Elite8, Final4, Finals, Champion
+        round_cols = ['Rd64', 'Rd32', 'Sweet16', 'Elite8', 'Final4', 'Finals', 'Champion']
+        for i, col in enumerate(round_cols):
+            win_prob_by_round[i] = float(row[col])
 
         if str(seed).endswith('a') or str(seed).endswith('b'):
             seed = seed[:-1]
         try:
             seed = int(seed)
-            elo = float(row['Adjusted Composite'])
+            elo = float(row['Rating'])
         except ValueError:
             print ('Error parsing this line:')
             print (row)
@@ -349,26 +349,10 @@ class BracketTree(object):
         else:
             df = []
             for g in ["M", "W"]:
-                silver_df = pd.read_excel(silver_files[g], skiprows=15)
+                silver_df = pd.read_excel(silver_files[g])
                 silver_df = silver_df.loc[~silver_df['Team'].isna()].copy()
-                # silver_df = silver_df[['team_id', 'team_name', 'team_seed', 'team_region']]
-                silver_df['team_name'] = silver_df['Team'].str.lower().str.strip()
-                print(silver_df.head())
-
-                silver_odds_df = pd.read_excel(silver_odds_files[g])
-                silver_odds_df = silver_odds_df.loc[~silver_odds_df['team_name'].isna()].copy()
-                silver_odds_df = silver_odds_df.loc[silver_odds_df['team_alive'] == 1].copy()
-                silver_odds_df['team_name'] = silver_odds_df['team_name'].str.lower().str.strip()
-                silver_odds_df['m_or_w'] = g
-                print(silver_odds_df.head())
-                
-                silver_df = silver_odds_df.merge(silver_df, on=['team_name'], how='inner')
-
-                print('Merged length:', g, len(silver_df))
-                print(silver_df.head())
-
+                silver_df['m_or_w'] = g
                 df.append(silver_df)
-                # print(df.loc[df['Team'].isna() | df['team_name'].isna()])
             df = pd.concat(df, ignore_index=True)
             df.to_csv(default_data_file, index=False)
         df = df.loc[df['m_or_w'] == m_or_w]
